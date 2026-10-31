@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Il Volo del Drago</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="cloudFog"></div>
+  <div id="vignette"></div>
+
+  <div id="hud" class="hidden">
+    <div id="stats">
+      <div class="row big"><span id="speed">0</span><small>km/h</small></div>
+      <div class="row"><span class="lbl">Quota</span><span id="alt">0</span><small>m</small></div>
+      <div class="bar"><span class="lbl">Spinta</span><div class="track"><div id="throttleBar" class="fill thr"></div></div></div>
+      <div class="bar"><span class="lbl">Fuoco</span><div class="track"><div id="energyBar" class="fill fire"></div></div></div>
+      <div class="bar"><span class="lbl">Tempesta</span><div class="track"><div id="stormBar" class="fill storm"></div></div></div>
+    </div>
+    <div id="score">
+      <div><span id="destroyed">0</span> / <span id="total">0</span> edifici distrutti</div>
+      <div class="sub"><span id="burning">0</span> in fiamme</div>
+    </div>
+    <canvas id="minimap" width="200" height="200"></canvas>
+    <div id="banner"></div>
+    <div id="msgs"></div>
+    <div id="warn" class="hidden">Confine del regno — il drago torna indietro</div>
+    <div id="hint">H aiuto · P pausa · M audio</div>
+  </div>
+
+  <div id="help" class="hidden panel">
+    <h2>Comandi</h2>
+    <div class="cols">
+      <div>
+        <h3>Tastiera e mouse</h3>
+        <table>
+          <tr><td><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd></td><td>Sali / scendi</td></tr>
+          <tr><td><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></td><td>Vira</td></tr>
+          <tr><td><kbd>Shift</kbd> o <kbd>E</kbd></td><td>Accelera</td></tr>
+          <tr><td><kbd>Q</kbd> o <kbd>Z</kbd></td><td>Rallenta</td></tr>
+          <tr><td><kbd>Spazio</kbd> / clic sinistro</td><td>Sputa fuoco (tieni premuto)</td></tr>
+          <tr><td>Destro + trascina, rotella</td><td>Ruota / avvicina la camera</td></tr>
+          <tr><td><kbd>I</kbd></td><td>Inverti asse verticale</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Joystick</h3>
+        <table>
+          <tr><td>Levetta sinistra</td><td>Vira, sali, scendi</td></tr>
+          <tr><td>Levetta destra</td><td>Ruota la camera</td></tr>
+          <tr><td><kbd>A</kbd> / <kbd>B</kbd></td><td>Accelera / rallenta</td></tr>
+          <tr><td><kbd>RT</kbd></td><td>Sputa fuoco</td></tr>
+          <tr><td><kbd>X</kbd> · <kbd>Y</kbd></td><td>Palla di fuoco · Giro della morte</td></tr>
+          <tr><td><kbd>LB</kbd> <kbd>RB</kbd></td><td>Piroetta</td></tr>
+          <tr><td><kbd>LT</kbd> + <kbd>RT</kbd></td><td>Tempesta di fuoco</td></tr>
+        </table>
+      </div>
+    </div>
+    <h3>Combinazioni speciali</h3>
+    <table class="combos">
+      <tr><td><kbd>Spazio</kbd> <kbd>Spazio</kbd> (doppio tocco)</td><td>🔥 Palla di fuoco</td></tr>
+      <tr><td><kbd>↓</kbd> <kbd>↑</kbd> + <kbd>Spazio</kbd></td><td>🌋 Tempesta di fuoco</td></tr>
+      <tr><td><kbd>A</kbd> <kbd>A</kbd> / <kbd>D</kbd> <kbd>D</kbd> (doppio tocco)</td><td>🌀 Piroetta a sinistra / destra</td></tr>
+      <tr><td><kbd>W</kbd> <kbd>W</kbd> (doppio tocco)</td><td>➰ Giro della morte</td></tr>
+    </table>
+    <p class="note">Vola basso sul mare: lo spostamento d'aria delle ali increspa e spinge l'acqua. Gli edifici colpiti dal fuoco bruciano e l'incendio si propaga alle case vicine.</p>
+    <p class="close">Premi <kbd>H</kbd> per chiudere</p>
+  </div>
+
+  <div id="pause" class="hidden"><div>PAUSA</div><small>Premi P per riprendere</small></div>
+
+  <div id="start">
+    <div class="title">
+      <h1>Il Volo del Drago</h1>
+      <p class="tag">Sorvola i regni medievali, sfiora il mare, incendia i villaggi.</p>
+      <div id="loading">Generazione del mondo…</div>
+      <button id="play" class="hidden">Spicca il volo</button>
+      <p class="keys"><kbd>W A S D</kbd> vola · <kbd>Shift</kbd> accelera · <kbd>Spazio</kbd> fuoco · <kbd>H</kbd> tutti i comandi e le combo<br>Funziona anche con il joystick</p>
+    </div>
+  </div>
+
+  <script>
+    // Aperto come file: i moduli JavaScript vengono bloccati dal browser
+    if (location.protocol === 'file:') {
+      document.getElementById('loading').innerHTML =
+        'Apri il gioco tramite il server: avvia <b>node server.js</b> e vai su <b>http://localhost:5173</b>';
+      document.getElementById('loading').style.animation = 'none';
+    }
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

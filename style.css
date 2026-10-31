@@ -1,0 +1,101 @@
+:root {
+  --ink: #f4ead8;
+  --gold: #f3b84b;
+  --ember: #ff6a1f;
+  --panel: rgba(18, 12, 10, 0.72);
+  --line: rgba(243, 184, 75, 0.35);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; color: var(--ink); font-family: 'Inter', system-ui, sans-serif; user-select: none; }
+#app, #app canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hidden { display: none !important; }
+
+#cloudFog { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(235, 240, 248, 0.92), rgba(220, 228, 240, 0.98)); }
+#flare { position: fixed; inset: 0; pointer-events: none; mix-blend-mode: screen; overflow: hidden; display: none; }
+.fl { position: absolute; left: 0; top: 0; border-radius: 50%; will-change: transform, opacity; }
+.fl.glow { background: radial-gradient(circle, rgba(255, 246, 225, 0.9) 0%, rgba(255, 220, 160, 0.35) 18%, rgba(255, 190, 120, 0.08) 45%, transparent 70%); }
+.fl.core { background: radial-gradient(circle, #fff 0%, rgba(255, 252, 240, 0.9) 25%, transparent 70%); }
+.fl.streak { height: 8px !important; border-radius: 50%; background: radial-gradient(ellipse, rgba(255, 235, 200, 0.7) 0%, rgba(255, 210, 160, 0.2) 40%, transparent 70%); }
+.fl.ring { background: radial-gradient(circle, transparent 58%, rgba(200, 220, 255, 0.35) 66%, rgba(255, 200, 150, 0.25) 70%, transparent 74%); }
+.fl.hex { clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); border-radius: 0; }
+.fl.blue { background: radial-gradient(circle, rgba(120, 170, 255, 0.25), rgba(120, 170, 255, 0.55)); }
+.fl.violet { background: radial-gradient(circle, rgba(200, 130, 255, 0.2), rgba(200, 130, 255, 0.45)); }
+.fl.green { background: radial-gradient(circle, rgba(140, 255, 170, 0.3), rgba(140, 255, 170, 0.6)); }
+.fl.gold { background: radial-gradient(circle, rgba(255, 200, 110, 0.25), rgba(255, 200, 110, 0.55)); }
+#vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.35) 100%); }
+
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; margin: 0 1px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: rgba(255, 255, 255, 0.06); font: 600 12px 'Inter', sans-serif; color: var(--ink); text-align: center; }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+#stats { position: absolute; left: 20px; bottom: 20px; width: 230px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(4px); }
+#stats .row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+#stats .row.big span { font: 700 34px 'Cinzel', serif; color: var(--gold); }
+#stats small { opacity: 0.7; font-size: 12px; }
+#stats .lbl { width: 70px; font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.08em; }
+#stats .row span:nth-child(2) { font-weight: 600; font-size: 18px; }
+.bar { display: flex; align-items: center; margin-top: 7px; }
+.track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; }
+.fill { height: 100%; width: 0; border-radius: 4px; transition: width 0.1s linear; }
+.fill.thr { background: linear-gradient(90deg, #6fb7ff, #c6f0ff); }
+.fill.fire { background: linear-gradient(90deg, #ff3d00, #ffc247); }
+.fill.storm { background: linear-gradient(90deg, #8a1cff, #ff4d6d); }
+.fill.storm.ready { box-shadow: 0 0 10px #ff4d6d; }
+
+#score { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; text-align: center; font: 600 15px 'Cinzel', serif; }
+#score span { color: var(--gold); }
+#score .sub { font: 12px 'Inter', sans-serif; opacity: 0.85; margin-top: 2px; }
+#score .sub span { color: var(--ember); font-weight: 600; }
+
+#minimap { position: absolute; right: 20px; top: 18px; width: 190px; height: 190px; border-radius: 50%; border: 2px solid var(--line); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5); background: #123; }
+
+#banner { position: absolute; top: 18%; left: 0; right: 0; text-align: center; font: 700 34px 'Cinzel', serif; color: var(--ink); letter-spacing: 0.06em; opacity: 0; transition: opacity 0.8s; }
+#banner small { display: block; font: 13px 'Inter', sans-serif; letter-spacing: 0.25em; text-transform: uppercase; opacity: 0.75; margin-bottom: 4px; }
+#banner.show { opacity: 1; }
+
+#msgs { position: absolute; left: 0; right: 0; top: 32%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.msg { font: 900 30px 'Cinzel', serif; color: var(--gold); letter-spacing: 0.05em; animation: pop 1.8s ease-out forwards; text-shadow: 0 0 18px rgba(255, 106, 31, 0.8), 0 2px 4px #000; }
+.msg.small { font-size: 18px; color: var(--ink); text-shadow: 0 2px 4px #000; }
+.msg.bad { color: #ffb3a1; font-size: 18px; }
+@keyframes pop {
+  0% { opacity: 0; transform: scale(0.6) translateY(10px); }
+  12% { opacity: 1; transform: scale(1.08); }
+  25% { transform: scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-30px); }
+}
+
+#warn { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 8px; background: rgba(120, 20, 10, 0.75); font-weight: 600; }
+#hint { position: absolute; right: 22px; bottom: 18px; font-size: 12px; opacity: 0.65; }
+
+/* ---------- Pannelli ---------- */
+.panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, 94vw); max-height: 90vh; overflow: auto; padding: 22px 30px; background: rgba(16, 10, 8, 0.9); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); z-index: 10; }
+.panel h2 { margin: 0 0 10px; font: 700 26px 'Cinzel', serif; color: var(--gold); }
+.panel h3 { margin: 16px 0 6px; font: 600 15px 'Cinzel', serif; color: var(--gold); letter-spacing: 0.05em; }
+.panel .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.panel table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.panel td { padding: 4px 0; vertical-align: top; }
+.panel td:first-child { white-space: nowrap; padding-right: 12px; }
+.panel .note { font-size: 13px; opacity: 0.8; line-height: 1.5; }
+.panel .close { text-align: center; opacity: 0.7; font-size: 13px; }
+@media (max-width: 700px) { .panel .cols { grid-template-columns: 1fr; } }
+
+#pause { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); font: 900 48px 'Cinzel', serif; letter-spacing: 0.2em; z-index: 9; }
+#pause small { font: 14px 'Inter', sans-serif; letter-spacing: 0.1em; opacity: 0.8; }
+
+/* ---------- Schermata iniziale ---------- */
+#start { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(5, 8, 15, 0.15), rgba(5, 5, 8, 0.65)); z-index: 20; }
+#start .title { text-align: center; padding: 16px; }
+#start h1 { margin: 0; font: 900 clamp(40px, 8vw, 92px) 'Cinzel', serif; letter-spacing: 0.04em; color: #fff3dc; text-shadow: 0 0 40px rgba(255, 110, 30, 0.75), 0 4px 10px rgba(0, 0, 0, 0.8); }
+#start .tag { margin: 8px 0 30px; font-size: 18px; opacity: 0.9; text-shadow: 0 2px 6px #000; }
+#start button { padding: 14px 42px; font: 700 20px 'Cinzel', serif; letter-spacing: 0.08em; color: #1a0b04; background: linear-gradient(180deg, #ffd27a, #f08a24); border: none; border-radius: 40px; cursor: pointer; box-shadow: 0 6px 30px rgba(255, 120, 30, 0.55); transition: transform 0.15s; }
+#start button:hover { transform: scale(1.05); }
+#start .keys { margin-top: 28px; font-size: 14px; opacity: 0.85; line-height: 2; text-shadow: 0 2px 6px #000; }
+#loading { font: 600 16px 'Cinzel', serif; opacity: 0.85; animation: pulse 1.2s infinite alternate; }
+@keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
+
+@media (max-width: 700px) {
+  #stats { width: 180px; left: 12px; bottom: 12px; }
+  #minimap { width: 120px; height: 120px; right: 12px; }
+}
