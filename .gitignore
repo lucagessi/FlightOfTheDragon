@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# generata da scripts/copy-three.js (npm install)
+vendor/
+.claude/settings.local.json
+*.log

@@ -1,0 +1,63 @@
+{
+  "name": "il-volo-del-drago",
+  "productName": "Il Volo del Drago",
+  "version": "0.0.0-development",
+  "description": "Gioco 3D: un drago vola su regni medievali",
+  "author": "Luca Gessi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucagessi/FlightOfTheDragon.git"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "postinstall": "node scripts/copy-three.js",
+    "web": "node server.js",
+    "start": "electron .",
+    "dist": "node scripts/copy-three.js && electron-builder --win portable --linux tar.gz --x64 --publish never",
+    "dist:win": "node scripts/copy-three.js && electron-builder --win portable --x64 --publish never",
+    "dist:linux": "node scripts/copy-three.js && electron-builder --linux tar.gz --x64 --publish never"
+  },
+  "devDependencies": {
+    "@semantic-release/exec": "^6.0.3",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "semantic-release": "^24.2.9",
+    "three": "0.160.0"
+  },
+  "build": {
+    "appId": "it.dragongame.volodeldrago",
+    "productName": "Il Volo del Drago",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "style.css",
+      "src/**/*",
+      "vendor/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "IlVoloDelDrago-${version}.exe"
+    },
+    "linux": {
+      "target": "tar.gz",
+      "category": "Game",
+      "executableName": "il-volo-del-drago",
+      "extraFiles": [
+        {
+          "from": "linux/avvia.sh",
+          "to": "avvia.sh"
+        }
+      ],
+      "artifactName": "IlVoloDelDrago-${version}-linux-x64.${ext}"
+    }
+  }
+}
