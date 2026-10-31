@@ -25,7 +25,19 @@ node godot/tools/export_world.mjs
 ```
 
 Villaggi, edifici e alberi sono generati in GDScript con lo stesso generatore casuale (`mulberry32`, seme 2024).
-Per esportare il gioco aggiungi `data/*` ai file non risorsa nel preset di esportazione.
+
+## Build
+
+Servono i modelli di esportazione di Godot 4.7.2 (editor: *Editor → Gestisci modelli di esportazione*).
+I preset in `export_presets.cfg` includono già `data/*`. Dalla radice del repository:
+
+```bash
+GODOT="E:/Apps/win11/Godot/Godot_v4.7.2-stable_win64_console.exe" npm run dist:godot
+```
+
+crea `dist/godot/IlVoloDelDrago-godot.exe` con accanto `IlVoloDelDrago-godot.pck` (i dati del gioco: tienili nella
+stessa cartella); `npm run dist:godot -- linux` crea la versione Linux x64. Il pacchetto non è incorporato nell'exe
+perché su Windows l'antivirus blocca il file appena creato e l'incorporazione fallisce.
 
 ## Struttura
 
@@ -45,4 +57,4 @@ Per esportare il gioco aggiungi `data/*` ai file non risorsa nel preset di espor
 - draghi guardiani nemici, vita del giocatore e abbattimento
 - nuvole, audio, bagliore del sole sullo schermo
 - bruciature sul terreno e detriti delle esplosioni
-- preset di esportazione e pipeline di rilascio
+- pipeline di rilascio in CI
