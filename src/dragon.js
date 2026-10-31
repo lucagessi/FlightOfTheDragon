@@ -17,32 +17,79 @@ function radiusAt(t) {
   return 0.7;
 }
 
+// Scaglie embricate: 8 colonne x 10 file che si ripetono senza cuciture.
+// Il colore fa da mappa (moltiplica i colori dei vertici) e da rilievo.
 function scaleTexture() {
-  const S = 256;
+  const S = 512, cols = 8, rows = 10;
+  const sw = S / cols, sh = S / rows;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#777';
+  ctx.fillStyle = '#3a3a3a';
   ctx.fillRect(0, 0, S, S);
-  const step = 16;
-  for (let r = -1; r < S / step + 1; r++) {
-    for (let col = -1; col < S / step + 1; col++) {
-      const x = col * step + (r % 2 ? step / 2 : 0), y = r * step * 0.75;
-      const g = ctx.createRadialGradient(x, y - 3, 1, x, y, step * 0.62);
-      g.addColorStop(0, '#fff');
-      g.addColorStop(0.7, '#bbb');
-      g.addColorStop(1, '#333');
+  // dall'alto verso il basso: ogni fila copre la parte alta di quella successiva
+  for (let r = rows; r >= -1; r--) {
+    for (let col = -1; col <= cols; col++) {
+      const x = col * sw + (r % 2 ? sw / 2 : 0), y = r * sh;
+      const rad = sw * 0.62;
+      const g = ctx.createRadialGradient(x - rad * 0.15, y + rad * 0.2, rad * 0.05, x, y, rad);
+      const tone = 200 + Math.floor(Math.random() * 40);
+      g.addColorStop(0, `rgb(${tone + 15},${tone + 15},${tone + 15})`);
+      g.addColorStop(0.55, `rgb(${tone - 30},${tone - 30},${tone - 30})`);
+      g.addColorStop(0.85, 'rgb(110,110,110)');
+      g.addColorStop(1, 'rgb(40,40,40)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(x, y, step * 0.6, 0, Math.PI);
+      ctx.ellipse(x, y, rad, rad * 1.05, 0, 0, Math.PI);
+      ctx.closePath();
       ctx.fill();
+      // cresta centrale di ogni scaglia
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y + 2); ctx.lineTo(x, y + rad * 0.8); ctx.stroke();
     }
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+
+// Membrana delle ali: chiazze e venature che partono dal braccio
+function membraneTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#c8c8c8';
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * S, y = Math.random() * S, r = 6 + Math.random() * 26;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(${Math.random() < 0.5 ? '255,255,255' : '90,90,90'},0.18)`);
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.strokeStyle = 'rgba(40,40,40,0.55)';
+  for (let i = 0; i < 22; i++) {
+    let x = Math.random() * S * 0.9, y = 0;
+    ctx.lineWidth = 1 + Math.random() * 2.2;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    while (y < S) {
+      x += (Math.random() - 0.5) * 18; y += 10 + Math.random() * 14;
+      ctx.lineTo(x, y);
+      if (Math.random() < 0.12) { // ramificazione
+        ctx.moveTo(x, y); ctx.lineTo(x + (Math.random() - 0.5) * 50, y + 25); ctx.moveTo(x, y);
+      }
+    }
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
   t.anisotropy = 4;
   return t;
 }
+let MEMBRANE_TEX = null;
 
 let SCALE_TEX = null;
 const DYING_CTRL = { steer: 0, climb: -1, throttle: -1, fire: false };
@@ -97,10 +144,11 @@ export class Dragon {
 
     const scaleTex = SCALE_TEX || (SCALE_TEX = scaleTexture());
     this.mats = {
-      body: new THREE.MeshStandardMaterial({ vertexColors: true, map: scaleTex, bumpMap: scaleTex, bumpScale: 3, roughness: 0.45, metalness: 0.2 }),
-      skin: new THREE.MeshStandardMaterial({ color: palette.skin, roughness: 0.45, metalness: 0.2, map: scaleTex, bumpMap: scaleTex, bumpScale: 2 }),
-      dark: new THREE.MeshStandardMaterial({ color: palette.dark, roughness: 0.5, metalness: 0.2 }),
-      membrane: new THREE.MeshStandardMaterial({ color: palette.membrane, side: THREE.DoubleSide, roughness: 0.7, metalness: 0, emissive: palette.membraneGlow }),
+      body: new THREE.MeshStandardMaterial({ vertexColors: true, map: scaleTex, bumpMap: scaleTex, bumpScale: 6, roughness: 0.38, metalness: 0.3 }),
+      skin: new THREE.MeshStandardMaterial({ color: palette.skin, roughness: 0.4, metalness: 0.25, map: scaleTex, bumpMap: scaleTex, bumpScale: 4 }),
+      dark: new THREE.MeshStandardMaterial({ color: palette.dark, roughness: 0.45, metalness: 0.25, bumpMap: scaleTex, bumpScale: 3 }),
+      membrane: new THREE.MeshStandardMaterial({ color: palette.membrane, side: THREE.DoubleSide, roughness: 0.65, metalness: 0, emissive: palette.membraneGlow,
+        map: MEMBRANE_TEX || (MEMBRANE_TEX = membraneTexture()), bumpMap: MEMBRANE_TEX, bumpScale: 1.5 }),
       horn: new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.35, metalness: 0.05 }),
       eye: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(...palette.eye), emissiveIntensity: 6 }),
       mouth: new THREE.MeshStandardMaterial({ color: 0x200000, emissive: new THREE.Color(1, 0.3, 0.05), emissiveIntensity: 0 }),
@@ -131,7 +179,7 @@ export class Dragon {
         const s = Math.sin(j / RAD * Math.PI * 2);
         c.copy(back).lerp(ridge, smoothstep(0.75, 1, s)).lerp(belly, smoothstep(-0.25, -0.75, s));
         col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
-        uv[k * 2] = j / RAD * 2; uv[k * 2 + 1] = i / (RINGS - 1) * 22;
+        uv[k * 2] = j / RAD * 2; uv[k * 2 + 1] = i / (RINGS - 1) * 9;
       }
     }
     const idx = [];
@@ -256,6 +304,9 @@ export class Dragon {
     w.posArr = new Float32Array(13 * 3);
     w.posAttr = new THREE.BufferAttribute(w.posArr, 3).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', w.posAttr);
+    w.uvAttr = new THREE.BufferAttribute(new Float32Array(13 * 2), 2);
+    g.setAttribute('uv', w.uvAttr);
+    w.uvSet = false;
     g.setIndex([2, 3, 9, 2, 9, 4, 2, 4, 10, 2, 10, 5, 2, 5, 11, 2, 11, 6, 2, 6, 1, 1, 6, 12, 1, 12, 7, 1, 7, 8, 1, 8, 0]);
     w.geo = g;
     w.membrane = new THREE.Mesh(g, this.mats.membrane);
@@ -415,6 +466,14 @@ export class Dragon {
       p[12].lerpVectors(p[6], p[7], 0.5).lerp(p[1], 0.22);
       for (let i = 0; i < 13; i++) { w.posArr[i * 3] = p[i].x; w.posArr[i * 3 + 1] = p[i].y; w.posArr[i * 3 + 2] = p[i].z; }
       w.posAttr.needsUpdate = true;
+      // UV fisse, ricavate dalla posa iniziale (ala distesa): u lungo l'apertura, v dal braccio al bordo
+      if (!w.uvSet) {
+        for (let i = 0; i < 13; i++) {
+          w.uvAttr.setXY(i, clamp(Math.abs(p[i].x) / 26, 0, 1), clamp((p[i].z + 16) / 19, 0, 1));
+        }
+        w.uvAttr.needsUpdate = true;
+        w.uvSet = true;
+      }
       w.geo.computeVertexNormals();
     }
   }

@@ -19,16 +19,28 @@ const COMMON = /* glsl */`
     return texture2D(uHeight, uv).r * 60.0 - 30.0;
   }
 
+  // onde lunghe (Gerstner): altezza, gradiente e spostamento orizzontale che appuntisce le creste
+  #define WAVES \
+    WAVE(1.0, 0.3, 170.0, 1.5, 11.0) \
+    WAVE(0.6, 1.0, 104.0, 0.95, 9.0) \
+    WAVE(-0.4, 0.9, 63.0, 0.55, 7.0) \
+    WAVE(0.9, -0.6, 37.0, 0.3, 5.2) \
+    WAVE(-0.8, -0.3, 21.0, 0.14, 3.9) \
+    WAVE(0.2, -1.0, 13.0, 0.07, 3.1)
   float swell(vec2 p, out vec2 g) {
     float h = 0.0; g = vec2(0.0);
     vec2 d; float k, ph;
     #define WAVE(dx, dy, len, amp, spd) d = normalize(vec2(dx, dy)); k = 6.2831853 / len; ph = dot(d, p) * k + uTime * spd * k; h += amp * sin(ph); g += amp * k * cos(ph) * d;
-    WAVE(1.0, 0.3, 150.0, 0.85, 10.0)
-    WAVE(0.6, 1.0, 95.0, 0.5, 8.0)
-    WAVE(-0.4, 0.9, 57.0, 0.28, 6.0)
-    WAVE(0.9, -0.6, 33.0, 0.16, 4.5)
-    WAVE(-0.8, -0.3, 19.0, 0.07, 3.4)
+    WAVES
+    #undef WAVE
     return h;
+  }
+  vec2 swellShift(vec2 p) {
+    vec2 s = vec2(0.0), d; float k, ph;
+    #define WAVE(dx, dy, len, amp, spd) d = normalize(vec2(dx, dy)); k = 6.2831853 / len; ph = dot(d, p) * k + uTime * spd * k; s -= 0.75 * amp * cos(ph) * d;
+    WAVES
+    #undef WAVE
+    return s;
   }
 
   float localH(vec2 p) {
@@ -65,7 +77,9 @@ const VERT = /* glsl */`
     float depth = max(0.0, -terrainH(wp.xz));
     float amp = 0.25 + 0.75 * smoothstep(0.0, 14.0, depth);
     float hs = swell(wp.xz, g) * amp;
+    vec2 sh = swellShift(wp.xz) * amp * smoothstep(9000.0, 2000.0, length(wp.xz - cameraPosition.xz));
     wp.y += hs + localH(wp.xz);
+    wp.xz += sh;
     vSwell = hs;
     vWorld = wp.xyz;
     gl_Position = projectionMatrix * viewMatrix * wp;
@@ -138,7 +152,9 @@ const FRAG = /* glsl */`
 
     // schiuma: riva, creste, spostamento d'aria, anelli d'onda
     float foam = smoothstep(1.8, 0.0, depth) * (0.55 + 0.45 * sin(depth * 4.0 - uTime * 1.8 + d0 * 6.0));
-    foam += smoothstep(1.3, 2.0, hs) * 0.35 * d0;
+    // creste che si rompono in schiuma (cavalloni)
+    float crest = smoothstep(1.7, 2.9, hs * amp) * smoothstep(0.35, 0.75, detail(p * 0.6 + vec2(uTime * 0.3, 0.0)));
+    foam += crest * 0.75 + smoothstep(1.2, 2.2, hs * amp) * 0.18 * d0;
     foam += down * smoothstep(0.3, 0.65, detail(p * 2.3 + uTime));
     foam += clamp(abs(hl) * 0.35, 0.0, 0.6) * smoothstep(0.35, 0.6, d0);
     foam = clamp(foam, 0.0, 1.0);
@@ -215,7 +231,7 @@ export class Water {
       const l = Math.hypot(dx, dy), k = 6.2831853 / len;
       return amp * Math.sin((dx / l * x + dy / l * z) * k + t * spd * k);
     };
-    return W(1, 0.3, 150, 0.85, 10) + W(0.6, 1, 95, 0.5, 8) + W(-0.4, 0.9, 57, 0.28, 6);
+    return W(1, 0.3, 170, 1.5, 11) + W(0.6, 1, 104, 0.95, 9) + W(-0.4, 0.9, 63, 0.55, 7);
   }
 
   update(dt, camPos, downX, downZ, downStrength) {

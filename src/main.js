@@ -415,6 +415,7 @@ function frame() {
   }
   water.update(dt, camera.position, dx, dz, down);
   world.update(dt, time, fx, camera.position);
+  world.scorch.update(dt, renderer);
   fx.update(dt, camera.position, breathing ? mouth : null);
   fx.shake = Math.max(fx.shake, flapShake);
   flapShake = Math.max(0, flapShake - dt * 0.8);

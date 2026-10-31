@@ -1,6 +1,7 @@
 // Mondo: isole, terreno, villaggi medievali, castello, alberi e gestione degli incendi
 import * as THREE from 'three';
 import { makeNoise2D, mulberry32, fbm, clamp, lerp, smoothstep } from './noise.js';
+import { ScorchMap } from './scorch.js';
 
 const nA = makeNoise2D(1337);
 const nB = makeNoise2D(4242);
@@ -17,7 +18,7 @@ export const ISLANDS = [
 ];
 
 export const TERRAIN_SIZE = 7600;
-export const TERRAIN_SEGS = 380;
+export const TERRAIN_SEGS = 480;
 const HALF = TERRAIN_SIZE / 2;
 const STEP = TERRAIN_SIZE / TERRAIN_SEGS;
 const N = TERRAIN_SEGS + 1;
@@ -47,8 +48,10 @@ export function heightAt(x, z) {
   const hills = fbm(nA, x * 0.0007, z * 0.0007, 4) * 0.5 + 0.5;
   const detail = fbm(nA, x * 0.004 + 9.3, z * 0.004, 3) * 2.5;
   const mtnMask = smoothstep(0.55, 0.78, fbm(nC, x * 0.0005 + 3.1, z * 0.0005 - 1.7, 3) * 0.5 + 0.5);
-  const ridge = 1 - Math.abs(fbm(nC, x * 0.0016, z * 0.0016, 5));
-  const relief = hills * 30 + detail + mtnMask * (35 + Math.pow(ridge, 2.5) * 300);
+  const ridge = 1 - Math.abs(fbm(nC, x * 0.0016, z * 0.0016, 6));
+  // creste secondarie più fitte: guglie e canaloni sulle montagne
+  const ridge2 = 1 - Math.abs(fbm(nB, x * 0.0052 + 7.7, z * 0.0052 - 3.3, 4));
+  const relief = hills * 30 + detail + mtnMask * (35 + Math.pow(ridge, 2.5) * 300 + Math.pow(ridge2, 3) * 38 * (0.3 + ridge));
   return SEABED + m * (-SEABED + 5) + m * m * relief;
 }
 
@@ -76,8 +79,9 @@ const UNIT = {
 
 // Accumula primitive in un'unica geometria con attributi per l'incendio
 class GeoBuilder {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.bld = []; this.glow = []; }
-  add(geo, matrix, color, bid, baseY, glow = 0, rng = null) {
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.bld = []; this.glow = []; this.mat = []; }
+  // mat: 0 intonaco, 1 tegole/ardesia, 2 pietra, 3 legno, 4 finestre e porte
+  add(geo, matrix, color, bid, baseY, glow = 0, rng = null, mat = 0) {
     const p = geo.attributes.position, n = geo.attributes.normal;
     const nm = new THREE.Matrix3().getNormalMatrix(matrix);
     const v = new THREE.Vector3(), nn = new THREE.Vector3();
@@ -92,6 +96,7 @@ class GeoBuilder {
       this.col.push(color[0] * j * ao, color[1] * j * ao, color[2] * j * ao);
       this.bld.push(bid, baseY);
       this.glow.push(glow);
+      this.mat.push(mat);
     }
   }
   build() {
@@ -101,6 +106,7 @@ class GeoBuilder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.setAttribute('aBuild', new THREE.Float32BufferAttribute(this.bld, 2));
     g.setAttribute('aGlow', new THREE.Float32BufferAttribute(this.glow, 1));
+    g.setAttribute('aMat', new THREE.Float32BufferAttribute(this.mat, 1));
     g.computeBoundingSphere();
     return g;
   }
@@ -118,6 +124,15 @@ const COLORS = {
   castleRoof: L(0.5, 0.14, 0.12),
 };
 
+// Tipo di superficie dedotto dal colore della parte (per le texture procedurali)
+function materialOf(color) {
+  if (COLORS.roofs.includes(color) || color === COLORS.slate || color === COLORS.castleRoof) return 1;
+  if (color === COLORS.stone || color === COLORS.stoneDark) return 2;
+  if (color === COLORS.timber) return 3;
+  if (color === COLORS.window || color === COLORS.door) return 4;
+  return 0;
+}
+
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 const _Y = new THREE.Vector3(0, 1, 0);
 
@@ -134,6 +149,7 @@ export class World {
 
     this.buildTerrain();
     this.villages = this.placeVillages();
+    this.scorch = new ScorchMap(TERRAIN_SIZE);
     this.colorTerrain();
     this.burnTexSize = 1024;
     this.burnData = new Uint8Array(this.burnTexSize * 4);
@@ -257,17 +273,124 @@ export class World {
         }
         mix(rock, smoothstep(110, 175, y + n1 * 30));
         mix(rock2, smoothstep(0.86, 0.66, ny));
-        mix(snow, smoothstep(250, 300, y + n1 * 40) * smoothstep(0.6, 0.8, ny));
+        mix(snow, smoothstep(260, 310, y + n1 * 40) * smoothstep(0.55, 0.8, ny));
       }
       const shade = 0.88 + n1 * 0.24;
       cols[k * 3] = c[0] * shade; cols[k * 3 + 1] = c[1] * shade; cols[k * 3 + 2] = c[2] * shade;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
-    this.terrain = new THREE.Mesh(geo, mat);
+    this.terrain = new THREE.Mesh(geo, this.makeTerrainMaterial());
     this.terrain.receiveShadow = true;
     this.terrain.castShadow = true;
     this.scene.add(this.terrain);
+  }
+
+  // Dettagli calcolati per pixel: erba, roccia stratificata, neve, sabbia, paesi, bruciature
+  makeTerrainMaterial() {
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    const villages = this.villages.slice(0, 12).map(v => new THREE.Vector4(v.x, v.z, v.kind === 'castle' ? 0 : v.r + 10, v.kind === 'castle' ? 0 : 1));
+    while (villages.length < 12) villages.push(new THREE.Vector4(0, 0, 0, 0));
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uScorch = { value: this.scorch.texture };
+      shader.uniforms.uHeat = { value: this.scorch.heatTexture };
+      shader.uniforms.uTerr = { value: new THREE.Vector4(-HALF, -HALF, TERRAIN_SIZE, 0) };
+      shader.uniforms.uVillages = { value: villages };
+      shader.uniforms.uTime = this.time;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vWPos; varying vec3 vWNrm;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vWPos = transformed; vWNrm = objectNormal;`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          uniform sampler2D uScorch; uniform sampler2D uHeat; uniform vec4 uTerr; uniform vec4 uVillages[12]; uniform float uTime;
+          varying vec3 vWPos; varying vec3 vWNrm;
+          float th2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float tvn(vec2 p) {
+            vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(mix(th2(i), th2(i + vec2(1.0, 0.0)), u.x), mix(th2(i + vec2(0.0, 1.0)), th2(i + vec2(1.0, 1.0)), u.x), u.y);
+          }
+          float tfbm(vec2 p) { return tvn(p) * 0.5 + tvn(p * 2.03) * 0.25 + tvn(p * 4.07) * 0.125 + tvn(p * 8.1) * 0.0625; }
+          // ciottoli: distanza dal centro della cella di Voronoi più vicina
+          float cobble(vec2 p) {
+            vec2 i = floor(p), f = fract(p); float d = 1.0;
+            for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+              vec2 g = vec2(float(x), float(y));
+              vec2 o = vec2(th2(i + g), th2(i + g + 17.3)) * 0.8 + 0.1;
+              d = min(d, length(g + o - f));
+            }
+            return d;
+          }`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          vec2 tp = vWPos.xz;
+          float th = vWPos.y;
+          float tdist = length(vWPos - cameraPosition);
+          float tfade = 1.0 / (1.0 + tdist * 0.004);
+          float slope = 1.0 - clamp(normalize(vWNrm).y, 0.0, 1.0);
+          float n1 = tfbm(tp * 0.035), n2 = tvn(tp * 0.6), n3 = tvn(tp * 2.7);
+          vec3 tcol = diffuseColor.rgb;
+          // variazioni dell'erba e del suolo
+          tcol *= mix(1.0, (0.82 + 0.36 * n1) * (0.9 + 0.2 * mix(0.5, n2, tfade)), 1.0);
+          tcol = mix(tcol, tcol * vec3(1.08, 1.0, 0.82), smoothstep(0.55, 0.8, tvn(tp * 0.012)) * 0.5);
+          // roccia stratificata sui pendii ripidi
+          float rockMask = smoothstep(0.32, 0.5, slope + (n1 - 0.5) * 0.2) * step(2.0, th);
+          float strata = 0.5 + 0.5 * sin(th * 0.32 + n1 * 9.0 + tvn(tp * 0.025) * 7.0);
+          strata = mix(0.5, strata, 0.45 * tvn(tp * 0.01 + 3.0) + 0.2);
+          vec3 rock = mix(vec3(0.085, 0.078, 0.066), vec3(0.17, 0.158, 0.138), strata) * (0.75 + 0.5 * mix(0.5, n3, tfade)) * (0.85 + 0.3 * n1);
+          tcol = mix(tcol, rock, rockMask);
+          // neve solo sulle cime più alte, dove la pendenza la trattiene
+          float snowLine = 255.0 + (n1 - 0.5) * 90.0;
+          float snow = smoothstep(snowLine, snowLine + 25.0, th) * (1.0 - smoothstep(0.45, 0.68, slope));
+          snow = max(snow, smoothstep(snowLine + 60.0, snowLine + 110.0, th) * (1.0 - smoothstep(0.66, 0.9, slope)));
+          tcol = mix(tcol, vec3(0.78, 0.82, 0.9) * (0.9 + 0.12 * mix(0.5, n3, tfade)), snow);
+          // sabbia increspata vicino alla riva
+          float beach = smoothstep(4.5, 1.5, th) * (1.0 - rockMask);
+          tcol *= 1.0 - beach * 0.1 * (0.5 + 0.5 * sin(dot(tp, vec2(0.7, 0.45)) * 2.5 + n2 * 5.0)) * tfade;
+          // paesi: terra battuta, piazza acciottolata, solchi nei campi
+          for (int i = 0; i < 12; i++) {
+            vec4 v = uVillages[i];
+            if (v.w < 0.5) continue;
+            float d = length(tp - v.xy);
+            if (d > v.z + 210.0) continue;
+            float inner = smoothstep(v.z, v.z * 0.7, d);
+            vec3 dirt = vec3(0.13, 0.085, 0.05) * (0.75 + 0.5 * n2) * (0.85 + 0.3 * n3);
+            float paths = smoothstep(0.62, 0.7, tvn(tp * 0.05 + v.xy)) ;
+            tcol = mix(tcol, dirt, inner * clamp(0.45 + 0.4 * n1 + paths * 0.5, 0.0, 0.95));
+            float dj = d + (tvn(tp * 0.12) - 0.5) * v.z * 0.18;
+            float plaza = smoothstep(v.z * 0.36, v.z * 0.28, dj) * (0.75 + 0.25 * n1);
+            if (plaza > 0.0) {
+              float c = cobble(tp * 0.8);
+              vec3 stone = vec3(0.2, 0.185, 0.165) * (0.7 + 0.6 * th2(floor(tp * 0.8))) * mix(0.35, 1.0, smoothstep(0.05, 0.3, c));
+              tcol = mix(tcol, stone, plaza * 0.9 * tfade + plaza * 0.5 * (1.0 - tfade));
+            }
+            float ring = smoothstep(v.z * 0.8, v.z * 0.95, d) * smoothstep(v.z + 210.0, v.z + 140.0, d) * (1.0 - rockMask);
+            if (ring > 0.0) {
+              float ang = atan(tp.y - v.y, tp.x - v.x);
+              vec2 dir = vec2(cos(ang * 7.0), sin(ang * 7.0));
+              tcol *= 1.0 - ring * 0.14 * (0.5 + 0.5 * sin(dot(tp, dir) * 1.6)) * tfade;
+            }
+          }
+          // bruciature (permanenti) e braci (si spengono)
+          vec2 suv = (tp - uTerr.xy) / uTerr.z;
+          float burn = texture2D(uScorch, suv).r;
+          float heat = texture2D(uHeat, suv).r;
+          tcol = mix(tcol, vec3(0.012, 0.01, 0.009) * (0.6 + 0.8 * n3), clamp(burn, 0.0, 1.0) * 0.95);
+          diffuseColor.rgb = tcol;`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          // rilievo fine: più marcato sulla roccia
+          {
+            vec2 q = vWPos.xz * 0.45;
+            float e = 0.3;
+            float b0 = tfbm(q), bx = tfbm(q + vec2(e, 0.0)), bz = tfbm(q + vec2(0.0, e));
+            vec3 bw = vec3(-(bx - b0), 0.0, -(bz - b0)) / e * (0.25 + rockMask * 1.3 + snow * 0.15) * tfade;
+            normal = normalize(normal + (viewMatrix * vec4(bw, 0.0)).xyz);
+          }`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          float flickT = 0.6 + 0.4 * sin(uTime * 7.0 + tp.x * 0.3) * sin(uTime * 4.3 + tp.y * 0.21);
+          float speck = smoothstep(0.55, 0.85, tvn(tp * 1.3 + uTime * 0.05)) * smoothstep(0.3, 0.7, n3);
+          totalEmissiveRadiance += vec3(1.0, 0.28, 0.04) * heat * (speck * 1.6 + heat * 0.08) * flickT;`);
+    };
+    return mat;
   }
 
   // ---------------- EDIFICI ----------------
@@ -279,20 +402,65 @@ export class World {
       shader.uniforms.uTime = this.time;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
-          attribute vec2 aBuild; attribute float aGlow;
+          attribute vec2 aBuild; attribute float aGlow; attribute float aMat;
           uniform sampler2D uBurnTex; uniform float uBurnSize;
-          varying float vChar; varying float vFire; varying float vGlow; varying float vSeed; varying float vHeat;`)
+          varying float vChar; varying float vFire; varying float vGlow; varying float vSeed; varying float vHeat;
+          varying vec3 vBPos; varying vec3 vBNrm; varying float vMat;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vec4 bState = texture2D(uBurnTex, vec2((aBuild.x + 0.5) / uBurnSize, 0.5));
           float rel = transformed.y - aBuild.y;
           transformed.y = aBuild.y + rel * (1.0 - 0.62 * bState.b);
           transformed.x += sin(aBuild.x * 13.0 + transformed.y) * bState.b * 0.6;
           vChar = bState.r; vFire = bState.g; vGlow = aGlow; vSeed = aBuild.x;
-          vHeat = clamp(1.0 - rel / 16.0, 0.0, 1.0);`);
+          vHeat = clamp(1.0 - rel / 16.0, 0.0, 1.0);
+          vBPos = position; vBNrm = objectNormal; vMat = aMat;`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
-          uniform float uTime; varying float vChar; varying float vFire; varying float vGlow; varying float vSeed; varying float vHeat;`)
+          uniform float uTime; varying float vChar; varying float vFire; varying float vGlow; varying float vSeed; varying float vHeat;
+          varying vec3 vBPos; varying vec3 vBNrm; varying float vMat;
+          float bh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float bvn(vec2 p) {
+            vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(mix(bh2(i), bh2(i + vec2(1.0, 0.0)), u.x), mix(bh2(i + vec2(0.0, 1.0)), bh2(i + vec2(1.0, 1.0)), u.x), u.y);
+          }`)
         .replace('#include <color_fragment>', `#include <color_fragment>
+          {
+            // texture procedurali in coordinate del mondo
+            vec3 bn = normalize(vBNrm);
+            vec3 bp = vBPos;
+            float bu = abs(bn.x) > abs(bn.z) ? bp.z : bp.x;
+            float bfade = 1.0 / (1.0 + length(bp - cameraPosition) * 0.006);
+            float k = 1.0;
+            if (vMat > 0.5 && vMat < 1.5) {
+              // tegole: file sfalsate, ombra sotto ogni fila, colore che varia da tegola a tegola
+              float rc = bp.y * 2.3;
+              float row = floor(rc), fr = fract(rc);
+              float cc = bu * 1.7 + row * 0.5;
+              float fc = fract(cc);
+              float gap = smoothstep(0.0, 0.1, fc) * smoothstep(1.0, 0.9, fc);
+              float lip = 0.55 + 0.45 * smoothstep(0.0, 0.35, fr);
+              float var = bh2(vec2(floor(cc), row));
+              k = mix(1.0, lip * (0.72 + 0.28 * gap), bfade) * (0.82 + 0.36 * var) * (0.9 + 0.2 * bvn(bp.xz * 0.3));
+            } else if (vMat > 1.5 && vMat < 2.5) {
+              // blocchi di pietra con malta
+              float rc = bp.y * 1.5;
+              float rowi = floor(rc);
+              float cu = (abs(bn.y) > 0.7 ? bp.x : bu) * 0.75 + mod(rowi, 2.0) * 0.5;
+              vec2 f = vec2(fract(cu), abs(bn.y) > 0.7 ? fract(bp.z * 0.75) : fract(rc));
+              float mortar = smoothstep(0.0, 0.07, f.x) * smoothstep(1.0, 0.93, f.x) * smoothstep(0.0, 0.1, f.y) * smoothstep(1.0, 0.9, f.y);
+              float var = bh2(vec2(floor(cu), rowi));
+              k = mix(1.0, 0.55 + 0.45 * mortar, bfade) * (0.75 + 0.45 * var) * (0.85 + 0.3 * bvn(vec2(bu, bp.y) * 2.0));
+            } else if (vMat > 2.5 && vMat < 3.5) {
+              // venature del legno
+              float g = sin((bu * 0.4 + bp.y * 5.0) * 5.0 + bvn(vec2(bu, bp.y) * 3.0) * 5.0);
+              k = 0.82 + 0.18 * g;
+            } else if (vMat < 0.5) {
+              // intonaco con macchie e sporco in basso
+              float st = bvn(vec2(bu, bp.y) * 0.7) * 0.6 + bvn(vec2(bu, bp.y) * 3.1) * 0.4;
+              k = 0.86 + 0.2 * st;
+            }
+            diffuseColor.rgb *= k;
+          }
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.022, 0.018, 0.016), vChar * 0.93);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float flick = 0.7 + 0.3 * sin(uTime * 11.0 + vSeed * 3.7) * sin(uTime * 7.3 + vSeed * 1.3);
@@ -329,7 +497,7 @@ export class World {
     return (geo, lx, ly, lz, sx, sy, sz, ry, color, glow = 0) => {
       _q.setFromAxisAngle(_Y, ry);
       _m.compose(_v.set(lx, ly, lz), _q, _s.set(sx, sy, sz)).premultiply(frame);
-      B.add(geo, _m, color, bid, base, glow, rng);
+      B.add(geo, _m, color, bid, base, glow, rng, materialOf(color));
     };
   }
 

@@ -231,6 +231,117 @@ export class FX {
 
     this.fire.onCollide = (x, y, z, i) => this.particleHit(x, y, z, this.fire.flags[i] === 2 ? 'enemy' : 'player');
     this.stats = { fireballs: 0 };
+    this.buildExplosionPools(scene);
+  }
+
+  // Lampo sferico, onda d'urto a terra e detriti per le esplosioni
+  buildExplosionPools(scene) {
+    const flashMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.2, 0.35), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    const ringMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 0.65, 0.25), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const sphere = new THREE.SphereGeometry(1, 20, 14);
+    const ring = new THREE.RingGeometry(0.9, 1, 64).rotateX(-Math.PI / 2);
+    this.blasts = [];
+    for (let i = 0; i < 8; i++) {
+      const flash = new THREE.Mesh(sphere, flashMat.clone());
+      const wave = new THREE.Mesh(ring, ringMat.clone());
+      flash.visible = wave.visible = false;
+      flash.renderOrder = wave.renderOrder = 4;
+      scene.add(flash, wave);
+      this.blasts.push({ flash, wave, t: 99, r: 1 });
+    }
+    this.blastIdx = 0;
+    // detriti: sassi, tegole e travi che volano e rimbalzano
+    this.debrisMax = 500;
+    const dGeo = new THREE.BoxGeometry(1, 1, 1);
+    this.debrisMesh = new THREE.InstancedMesh(dGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), this.debrisMax);
+    this.debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.debrisMesh.castShadow = true;
+    this.debrisMesh.frustumCulled = false;
+    this.debris = [];
+    const c = new THREE.Color();
+    for (let i = 0; i < this.debrisMax; i++) {
+      this.debris.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Euler(), w: new THREE.Vector3(), s: new THREE.Vector3(), life: 0 });
+      this.debrisMesh.setColorAt(i, c.setRGB(0.05, 0.04, 0.035));
+      this.debrisMesh.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+    }
+    this.debrisIdx = 0;
+    scene.add(this.debrisMesh);
+    this._dm = new THREE.Matrix4(); this._dq = new THREE.Quaternion();
+  }
+
+  spawnBlast(pos, radius, groundY, onWater) {
+    const b = this.blasts[this.blastIdx];
+    this.blastIdx = (this.blastIdx + 1) % this.blasts.length;
+    b.t = 0; b.r = radius;
+    b.flash.position.copy(pos);
+    b.wave.position.set(pos.x, Math.max(groundY, 0) + 0.8, pos.z);
+    b.wave.visible = pos.y - groundY < radius * 1.2; // l'onda d'urto solo vicino al suolo
+    b.flash.visible = true;
+    b.wave.material.color.setRGB(onWater ? 0.8 : 1.2, onWater ? 1.0 : 0.65, onWater ? 1.2 : 0.25);
+  }
+
+  spawnDebris(pos, n, groundY) {
+    const c = new THREE.Color();
+    const palette = [[0.06, 0.05, 0.045], [0.32, 0.12, 0.07], [0.4, 0.38, 0.35], [0.2, 0.12, 0.07]];
+    for (let i = 0; i < n; i++) {
+      const d = this.debris[this.debrisIdx];
+      const idx = this.debrisIdx;
+      this.debrisIdx = (this.debrisIdx + 1) % this.debrisMax;
+      const a = Math.random() * Math.PI * 2, up = 0.4 + Math.random() * 0.9, sp = 15 + Math.random() * 45;
+      d.p.set(pos.x + (Math.random() - 0.5) * 4, Math.max(pos.y, groundY + 1), pos.z + (Math.random() - 0.5) * 4);
+      d.v.set(Math.cos(a) * sp * (1 - up * 0.5), sp * up + 8, Math.sin(a) * sp * (1 - up * 0.5));
+      d.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      d.w.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+      const s = 0.3 + Math.random() * 1.1;
+      d.s.set(s * (0.6 + Math.random()), s * (0.3 + Math.random() * 0.5), s * (0.6 + Math.random() * 1.5));
+      d.life = 6 + Math.random() * 4;
+      d.bounced = false;
+      const pc = palette[Math.floor(Math.random() * palette.length)];
+      this.debrisMesh.setColorAt(idx, c.setRGB(pc[0], pc[1], pc[2]));
+    }
+    this.debrisMesh.instanceColor.needsUpdate = true;
+  }
+
+  updateExplosions(dt) {
+    for (const b of this.blasts) {
+      if (b.t > 3) continue;
+      b.t += dt;
+      const ft = b.t / 0.55;
+      if (ft < 1) {
+        b.flash.scale.setScalar(b.r * (0.25 + 0.75 * Math.sqrt(ft)));
+        b.flash.material.opacity = (1 - ft) * (1 - ft);
+      } else b.flash.visible = false;
+      const wt = b.t / 0.9;
+      if (wt < 1 && b.wave.visible) {
+        b.wave.scale.setScalar(b.r * (0.3 + 2.6 * Math.sqrt(wt)));
+        b.wave.material.opacity = (1 - wt) * (1 - wt) * 0.6;
+      } else b.wave.visible = false;
+    }
+    let any = false;
+    for (let i = 0; i < this.debrisMax; i++) {
+      const d = this.debris[i];
+      if (d.life <= 0) continue;
+      any = true;
+      d.life -= dt;
+      d.v.y -= 30 * dt;
+      d.p.addScaledVector(d.v, dt);
+      d.r.x += d.w.x * dt; d.r.y += d.w.y * dt; d.r.z += d.w.z * dt;
+      const g = this.world.groundHeight(d.p.x, d.p.z);
+      if (d.p.y < Math.max(g, 0) + d.s.y * 0.5) {
+        if (g < 0.3) { d.life = 0; } // affonda in mare
+        else {
+          d.p.y = g + d.s.y * 0.5;
+          if (!d.bounced && d.v.y < -8) { d.v.y *= -0.3; d.v.x *= 0.5; d.v.z *= 0.5; d.bounced = true; }
+          else { d.v.set(0, 0, 0); d.w.multiplyScalar(0.9); }
+        }
+      }
+      const k = d.life < 1 ? Math.max(0, d.life) : 1;
+      this._dq.setFromEuler(d.r);
+      this._dm.compose(d.p, this._dq, _v.copy(d.s).multiplyScalar(k));
+      this.debrisMesh.setMatrixAt(i, this._dm);
+    }
+    if (any || this._debrisWasActive) this.debrisMesh.instanceMatrix.needsUpdate = true;
+    this._debrisWasActive = any;
   }
 
   setScale(s) { for (const ps of this.systems) ps.setScale(s); }
@@ -250,6 +361,8 @@ export class FX {
         }
         if (r < 0.12) this.fire.spawn(x, g + 1, z, (Math.random() - 0.5) * 6, 5 + Math.random() * 5, (Math.random() - 0.5) * 6, 0.7, 3, 6, 1);
         else if (r < 0.16) this.smoke.spawn(x, g + 2, z, 0, 5, 0, 4, 4, 18, 0);
+        // il terreno colpito resta annerito
+        if (r < 0.35) w.scorch.add(x, z, 3 + Math.random() * 4, 0.12, 0.35);
       }
       return true;
     }
@@ -334,7 +447,15 @@ export class FX {
         if (d < R + b.size * 0.5 && w.ignite(b, d * 0.012)) this.onIgnite?.(b, owner);
       });
       w.charTrees(pos.x, pos.z, R * 0.85, 40);
+      // cratere bruciato, detriti e colonna di fumo
+      w.scorch.add(pos.x, pos.z, R * 0.75, 0.85, 1);
+      this.spawnDebris(pos, Math.round(28 * size), g);
+      for (let i = 0; i < 18 * size; i++) {
+        this.smoke.spawn(pos.x + (Math.random() - 0.5) * 8, pos.y + 2, pos.z + (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 5, 22 + Math.random() * 22, (Math.random() - 0.5) * 5, 6 + Math.random() * 3, 8, 38, 0, 0, 0.45);
+      }
     }
+    this.spawnBlast(pos, R * 0.45, g, onWater);
     this.flashes.push({ pos: pos.clone().setY(pos.y + 6), t: 0 });
     this.onExplode?.(pos, size, owner);
   }
@@ -393,6 +514,7 @@ export class FX {
     }
 
     for (const ps of this.systems) ps.update(dt);
+    this.updateExplosions(dt);
 
     // luci dinamiche
     const L = this.lights;
