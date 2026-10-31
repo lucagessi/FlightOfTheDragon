@@ -15,23 +15,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Sulle pull request: verifica solo che l'exe si compili
-  build:
-    if: github.event_name == 'pull_request'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run dist:win
-
-  # Su main: versione da conventional commits, build dell'exe e GitHub Release
-  release:
+  # Su main: calcola la prossima versione dai conventional commits (vuota se non c'è nulla da rilasciare)
+  version:
     if: github.event_name != 'pull_request'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +29,68 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: npm ci --ignore-scripts
+      - name: semantic-release (dry run)
+        id: next
+        run: |
+          npx semantic-release --dry-run
+          if [ -f next-version.txt ]; then echo "version=$(cat next-version.txt)" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Compilazione in parallelo per Windows (exe portatile) e Linux x64 (tar.gz).
+  # Sulle pull request verifica solo che compili; su main usa la versione calcolata.
+  build:
+    needs: version
+    if: >-
+      !cancelled() && (github.event_name == 'pull_request' ||
+      (needs.version.result == 'success' && needs.version.outputs.version != ''))
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            artifact: dist/IlVoloDelDrago-*.exe
+          - os: ubuntu-latest
+            target: linux
+            artifact: dist/IlVoloDelDrago-*-linux-x64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - run: npm ci
+      - if: needs.version.outputs.version != ''
+        run: npm pkg set version=${{ needs.version.outputs.version }}
+      - run: npm run dist:${{ matrix.target }}
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # Su main: crea il tag e la GitHub Release con le note e i pacchetti compilati
+  release:
+    needs: [version, build]
+    if: github.event_name != 'pull_request' && needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
       - name: semantic-release
         run: npx semantic-release
         env:

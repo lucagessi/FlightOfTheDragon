@@ -5,7 +5,8 @@ Gioco 3D nel browser (Three.js): un drago vola su isole con villaggi medievali, 
 ## Giocare
 
 - **Windows**: scarica `IlVoloDelDrago-<versione>.exe` dalle [Release](https://github.com/lucagessi/FlightOfTheDragon/releases) (eseguibile portatile, non serve installare nulla).
-- **Linux 64 bit**: `npm run dist:linux`, estrai `dist/IlVoloDelDrago-<versione>-linux-x64.tar.gz` e avvia `sh avvia.sh` dalla cartella estratta.
+- **Linux 64 bit**: scarica `IlVoloDelDrago-<versione>-linux-x64.tar.gz` dalle [Release](https://github.com/lucagessi/FlightOfTheDragon/releases)
+  (o compilalo con `npm run dist:linux`), estrailo e avvia `sh avvia.sh` dalla cartella estratta.
 - **Browser**: `npm install` (una volta), poi `node server.js` e apri http://localhost:5173.
   Non aprire `index.html` direttamente come file: il browser blocca gli script.
 
@@ -23,8 +24,8 @@ npm run dist:linux  # solo Linux
 ## Rilasci automatici
 
 Ogni push su `main` avvia la CI (`.github/workflows/release.yml`): semantic-release legge i messaggi di commit
-([Conventional Commits](https://www.conventionalcommits.org/)), calcola la nuova versione, compila l'exe e lo pubblica
-nella GitHub Release `v<versione>`. `fix:` → patch, `feat:` → minor, `feat!:` / `BREAKING CHANGE:` → major.
+([Conventional Commits](https://www.conventionalcommits.org/)), calcola la nuova versione, compila in parallelo l'exe
+per Windows e il `.tar.gz` per Linux x64 e li pubblica nella GitHub Release `v<versione>`. `fix:` → patch, `feat:` → minor, `feat!:` / `BREAKING CHANGE:` → major.
 
 ## Comandi
 

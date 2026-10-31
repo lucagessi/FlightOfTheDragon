@@ -5,11 +5,12 @@
     ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
     ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
     ["@semantic-release/exec", {
-      "prepareCmd": "npm pkg set version=${nextRelease.version} && npm run dist:win"
+      "verifyReleaseCmd": "echo ${nextRelease.version} > next-version.txt"
     }],
     ["@semantic-release/github", {
       "assets": [
-        { "path": "dist/IlVoloDelDrago-*.exe", "label": "Il Volo del Drago ${nextRelease.version} (Windows x64)" }
+        { "path": "dist/IlVoloDelDrago-*.exe", "label": "Il Volo del Drago ${nextRelease.version} (Windows x64)" },
+        { "path": "dist/IlVoloDelDrago-*-linux-x64.tar.gz", "label": "Il Volo del Drago ${nextRelease.version} (Linux x64)" }
       ],
       "successComment": false,
       "failComment": false,

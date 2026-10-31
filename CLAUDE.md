@@ -19,8 +19,9 @@ I commit decidono la versione rilasciata in automatico dalla CI (semantic-releas
 
 ## Rilascio
 
-Ogni push su `main` esegue `.github/workflows/release.yml`: semantic-release calcola la versione dai commit,
-compila `IlVoloDelDrago-<versione>.exe` e lo allega alla GitHub Release con le note generate.
+Ogni push su `main` esegue `.github/workflows/release.yml`: semantic-release calcola la versione dai commit (dry run),
+poi due job in parallelo compilano `IlVoloDelDrago-<versione>.exe` (Windows) e `IlVoloDelDrago-<versione>-linux-x64.tar.gz`
+(Ubuntu), e infine semantic-release crea la GitHub Release con le note generate e i due pacchetti allegati.
 Non modificare a mano la versione in `package.json`: la imposta la CI.
 
 ## Sviluppo

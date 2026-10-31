@@ -4,3 +4,5 @@ dist/
 vendor/
 .claude/settings.local.json
 *.log
+# scritta da semantic-release (verifyReleaseCmd)
+next-version.txt
