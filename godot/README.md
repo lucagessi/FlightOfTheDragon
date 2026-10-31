@@ -11,7 +11,8 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--breathe` tiene premuto il fuoco,
+`--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
 ## Dati del terreno

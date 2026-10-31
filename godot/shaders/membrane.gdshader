@@ -21,7 +21,8 @@ void fragment() {
 	vein = max(vein, branch * step(0.6, mnoise(uv * 5.0)));
 	float k = blot * (1.0 - vein * 0.45);
 	ALBEDO = color.rgb * k;
-	ROUGHNESS = 0.65;
+	ROUGHNESS = 0.8;
+	SPECULAR = 0.15;
 	EMISSION = glow.rgb;
-	BACKLIGHT = color.rgb * 0.35;
+	BACKLIGHT = color.rgb * k * 0.15;
 }

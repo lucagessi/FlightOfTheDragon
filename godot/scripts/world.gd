@@ -10,6 +10,9 @@ const HALF := TERRAIN_SIZE / 2.0
 const STEP := TERRAIN_SIZE / TERRAIN_SEGS
 const SEABED := -55.0
 const BURN_TEX_SIZE := 1024
+const CHUNKS := 16
+const LOD_SEGS := [128, 64, 32, 16] # suddivisioni di un blocco per livello (passo 3,7 / 7,4 / 15 / 30 m)
+const LOD_DIST := [650.0, 1400.0, 2800.0]
 
 # isole: x, z, raggio
 const ISLANDS := [
@@ -131,6 +134,9 @@ var burn_image: Image
 var burn_tex: ImageTexture
 var building_material: ShaderMaterial
 var terrain_material: ShaderMaterial
+var terrain_lods: Array[ArrayMesh] = []
+var terrain_chunks: Array[MeshInstance3D] = []
+var smooth_ground := false # dopo la generazione l'altezza segue la superficie morbida disegnata
 
 
 static func material_of(color: Color) -> int:
@@ -166,6 +172,7 @@ func generate() -> void:
 			_build_village(v)
 	stats.total = buildings.size() - 1
 	_build_trees()
+	smooth_ground = true
 
 
 # ---------------- TERRENO ----------------
@@ -184,6 +191,8 @@ func ground_height(x: float, z: float) -> float:
 	var fz := (z + HALF) / STEP
 	if fx < 0 or fz < 0 or fx >= N - 1 or fz >= N - 1:
 		return SEABED
+	if smooth_ground:
+		return _catmull(fx, fz)
 	var i := int(fx)
 	var j := int(fz)
 	var tx := fx - i
@@ -192,6 +201,28 @@ func ground_height(x: float, z: float) -> float:
 	var a := hgrid[k] + (hgrid[k + 1] - hgrid[k]) * tx
 	var b := hgrid[k + N] + (hgrid[k + N + 1] - hgrid[k + N]) * tx
 	return a + (b - a) * tz
+
+
+# Interpolazione Catmull-Rom (passa per i punti della griglia): la stessa dello shader del terreno
+func _catmull(fx: float, fz: float) -> float:
+	var i := int(fx)
+	var j := int(fz)
+	var wx := _cr_weights(fx - i)
+	var wz := _cr_weights(fz - j)
+	var h := 0.0
+	for b in 4:
+		var row := clampi(j + b - 1, 0, N - 1) * N
+		var s := 0.0
+		for a in 4:
+			s += wx[a] * hgrid[row + clampi(i + a - 1, 0, N - 1)]
+		h += wz[b] * s
+	return h
+
+
+static func _cr_weights(t: float) -> PackedFloat32Array:
+	var t2 := t * t
+	var t3 := t2 * t
+	return PackedFloat32Array([-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2])
 
 
 # Rumore della foresta (fbm a bassa frequenza) interpolato dalla griglia
@@ -270,13 +301,11 @@ func _place_villages() -> Array:
 	return out
 
 
-# Il terreno è un piano suddiviso: le altezze le applica lo shader leggendo data_tex
+# Il terreno è diviso in blocchi con più livelli di dettaglio: le altezze (interpolate in modo
+# morbido tra i punti della griglia, con rilievo roccioso fine) le calcola lo shader da data_tex
 func _build_terrain_mesh() -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(TERRAIN_SIZE, TERRAIN_SIZE)
-	plane.subdivide_width = TERRAIN_SEGS - 1
-	plane.subdivide_depth = TERRAIN_SEGS - 1
-	plane.custom_aabb = AABB(Vector3(-HALF, SEABED - 5, -HALF), Vector3(TERRAIN_SIZE, 520, TERRAIN_SIZE))
+	for n in LOD_SEGS:
+		terrain_lods.append(_chunk_mesh(n))
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/terrain.gdshader")
 	terrain_material.set_shader_parameter("terrain_data", data_tex)
@@ -288,11 +317,75 @@ func _build_terrain_mesh() -> void:
 		else:
 			vs.append(Vector4.ZERO)
 	terrain_material.set_shader_parameter("villages", vs)
-	var mi := MeshInstance3D.new()
-	mi.name = "Terrain"
-	mi.mesh = plane
-	mi.material_override = terrain_material
-	add_child(mi)
+	var size := TERRAIN_SIZE / CHUNKS
+	for j in CHUNKS:
+		for i in CHUNKS:
+			var mi := MeshInstance3D.new()
+			mi.mesh = terrain_lods[LOD_SEGS.size() - 1]
+			mi.material_override = terrain_material
+			mi.position = Vector3(-HALF + (i + 0.5) * size, 0, -HALF + (j + 0.5) * size)
+			mi.custom_aabb = AABB(Vector3(-size / 2, SEABED - 30, -size / 2), Vector3(size, 560, size))
+			add_child(mi)
+			terrain_chunks.append(mi)
+
+
+# Griglia di un blocco con "gonne" verticali sui bordi che coprono le fessure tra livelli diversi
+func _chunk_mesh(n: int) -> ArrayMesh:
+	var size := TERRAIN_SIZE / CHUNKS
+	var step := size / n
+	var pos := PackedVector3Array()
+	var skirt := PackedVector2Array()
+	for j in n + 1:
+		for i in n + 1:
+			pos.append(Vector3(-size / 2 + i * step, 0, -size / 2 + j * step))
+			skirt.append(Vector2.ZERO)
+	var idx := PackedInt32Array()
+	for j in n:
+		for i in n:
+			var a := j * (n + 1) + i
+			idx.append_array([a, a + 1, a + n + 1, a + 1, a + n + 2, a + n + 1])
+	# bordo percorso in senso orario: ogni vertice ha un gemello abbassato dallo shader
+	var edge := PackedInt32Array()
+	for i in n:
+		edge.append(i)
+	for j in n:
+		edge.append(j * (n + 1) + n)
+	for i in range(n, 0, -1):
+		edge.append(n * (n + 1) + i)
+	for j in range(n, 0, -1):
+		edge.append(j * (n + 1))
+	var base := pos.size()
+	for k in edge:
+		pos.append(pos[k])
+		skirt.append(Vector2(1, 0))
+	for e in edge.size():
+		var e1 := (e + 1) % edge.size()
+		idx.append_array([edge[e], edge[e1], base + e, edge[e1], base + e1, base + e])
+	var nrm := PackedVector3Array()
+	nrm.resize(pos.size())
+	nrm.fill(Vector3.UP)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = pos
+	arrays[Mesh.ARRAY_NORMAL] = nrm
+	arrays[Mesh.ARRAY_TEX_UV2] = skirt
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return m
+
+
+# Livello di dettaglio di ogni blocco in base alla distanza dalla camera
+func update_terrain(cam_pos: Vector3) -> void:
+	terrain_material.set_shader_parameter("focus", cam_pos)
+	for mi in terrain_chunks:
+		var d := Vector2(mi.position.x - cam_pos.x, mi.position.z - cam_pos.z).length()
+		var lod := LOD_SEGS.size() - 1
+		for k in LOD_DIST.size():
+			if d < LOD_DIST[k]:
+				lod = k
+				break
+		mi.mesh = terrain_lods[lod]
 
 
 # ---------------- EDIFICI ----------------

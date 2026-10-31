@@ -75,8 +75,12 @@ func _ready() -> void:
 			_burn_nearest.call_deferred()
 		elif arg == "--breathe":
 			test_breathe = true
+		elif arg == "--novsync":
+			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		elif arg == "--land":
 			_test_land.call_deferred()
+		elif arg == "--peak":
+			_test_peak.call_deferred()
 	print("Mondo: %d villaggi, %d edifici, %d alberi" % [world.villages.size(), world.stats.total, world.trees.size()])
 
 
@@ -105,9 +109,31 @@ func _setup_environment() -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.62, 0.72, 0.84)
-	env.fog_density = 0.00011
+	env.fog_density = 0.00008
 	env.fog_aerial_perspective = 0.5
 	env.fog_sky_affect = 0.15
+	# foschia volumetrica vicina: raggi di sole tra i monti e bagliore degli incendi nel fumo
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.0003
+	env.volumetric_fog_albedo = Color(0.85, 0.9, 1.0)
+	env.volumetric_fog_anisotropy = 0.6
+	env.volumetric_fog_length = 1200
+	env.volumetric_fog_detail_spread = 2.0
+	env.volumetric_fog_ambient_inject = 0.4
+	env.volumetric_fog_sky_affect = 0.0
+	# occlusione ambientale, luce indiretta e riflessi in spazio schermo (il mare riflette isole e drago)
+	env.ssao_enabled = true
+	env.ssao_radius = 3.0
+	env.ssao_intensity = 2.0
+	env.ssao_power = 1.5
+	env.ssil_enabled = true
+	env.ssil_radius = 8.0
+	env.ssil_intensity = 0.6
+	env.ssr_enabled = true
+	env.ssr_max_steps = 96
+	env.ssr_fade_in = 0.1
+	env.ssr_fade_out = 2.0
+	env.ssr_depth_tolerance = 1.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -141,6 +167,21 @@ func _burn_nearest() -> void:
 		world.ignite(world.buildings[id])
 	dragon.position = Vector3(best.x - 150, best.h + 70, best.z - 200)
 	dragon.yaw = atan2(best.x - dragon.position.x, best.z - dragon.position.z)
+
+
+# Per le verifiche: davanti alla vetta più alta, controsole
+func _test_peak() -> void:
+	var best := 0
+	for k in world.hgrid.size():
+		if world.hgrid[k] > world.hgrid[best]:
+			best = k
+	var px := -World.HALF + (best % World.N) * World.STEP
+	var pz := -World.HALF + (best / World.N) * World.STEP
+	var ph := world.hgrid[best]
+	dragon.position = Vector3(px + 520, ph * 0.75, pz + 380)
+	dragon.yaw = atan2(px - dragon.position.x, pz - dragon.position.z)
+	dragon.throttle = 0.0
+	dragon.speed = 30
 
 
 # Per le verifiche: atterra vicino al villaggio più vicino
@@ -325,6 +366,7 @@ func _process(delta: float) -> void:
 	hurt = maxf(0, hurt - dt * 1.5)
 	water.update_water(dt, camera.position, dx, dz, down)
 	world.update(dt, time, camera.position)
+	world.update_terrain(camera.position)
 	fx.update_fx(dt, camera.position, mouth_pos)
 	fx.shake = maxf(fx.shake, flap_shake)
 	flap_shake = maxf(0, flap_shake - dt * 0.8)
