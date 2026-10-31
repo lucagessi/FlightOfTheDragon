@@ -81,6 +81,8 @@ func _ready() -> void:
 			_test_land.call_deferred()
 		elif arg == "--peak":
 			_test_peak.call_deferred()
+		elif arg == "--house":
+			_test_house.call_deferred()
 	print("Mondo: %d villaggi, %d edifici, %d alberi" % [world.villages.size(), world.stats.total, world.trees.size()])
 
 
@@ -182,6 +184,30 @@ func _test_peak() -> void:
 	dragon.yaw = atan2(px - dragon.position.x, pz - dragon.position.z)
 	dragon.throttle = 0.0
 	dragon.speed = 30
+
+
+# Per le verifiche: a terra davanti alle case del villaggio più vicino
+func _test_house() -> void:
+	_burn_nearest()
+	world.burning.clear()
+	var v = current_village_of(dragon.position)
+	var b: World.Building = world.buildings[v.ids[v.ids.size() / 2]]
+	var a := 2.2
+	dragon.position = Vector3(b.x + cos(a) * 38, 0, b.z + sin(a) * 38)
+	dragon.position.y = world.ground_height(dragon.position.x, dragon.position.z) + Dragon.STAND
+	dragon.yaw = atan2(b.x - dragon.position.x, b.z - dragon.position.z)
+	dragon.mode = "ground"
+	dragon.ground_blend = 1
+	dragon.speed = 0
+	cam_offset = -dragon.forward * 30 + Vector3(0, 12, 0)
+
+
+func current_village_of(p: Vector3):
+	var best = null
+	for v in world.villages:
+		if v.kind == "village" and (best == null or Vector2(v.x - p.x, v.z - p.z).length() < Vector2(best.x - p.x, best.z - p.z).length()):
+			best = v
+	return best
 
 
 # Per le verifiche: atterra vicino al villaggio più vicino

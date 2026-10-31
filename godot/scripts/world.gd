@@ -35,6 +35,7 @@ static var COLORS := {
 	"roofs": [U.lin(0.62, 0.25, 0.15), U.lin(0.55, 0.3, 0.18), U.lin(0.6, 0.5, 0.28), U.lin(0.32, 0.33, 0.37), U.lin(0.68, 0.32, 0.18)],
 	"slate": U.lin(0.28, 0.3, 0.35),
 	"castle_roof": U.lin(0.5, 0.14, 0.12),
+	"shutters": [U.lin(0.32, 0.4, 0.3), U.lin(0.45, 0.3, 0.18), U.lin(0.3, 0.36, 0.45), U.lin(0.5, 0.42, 0.3)],
 }
 
 
@@ -113,6 +114,10 @@ class PartMaker:
 		var xf := frame * Transform3D(Basis(Vector3.UP, ry) * Basis.from_scale(Vector3(sx, sy, sz)), Vector3(lx, ly, lz))
 		b.add(Prims.get_prim(kind), xf, color, bid, base, glow, rng, World.material_of(color))
 
+	# Parte con una trasformazione locale qualsiasi (travi inclinate, imposte aperte)
+	func pt(kind: String, local: Transform3D, color: Color, glow := 0.0) -> void:
+		b.add(Prims.get_prim(kind), frame * local, color, bid, base, glow, rng, World.material_of(color))
+
 
 var data: PackedFloat32Array # per vertice: altezza, rumore fine, foresta
 var hgrid: PackedFloat32Array
@@ -139,15 +144,20 @@ var terrain_chunks: Array[MeshInstance3D] = []
 var smooth_ground := false # dopo la generazione l'altezza segue la superficie morbida disegnata
 
 
+# 0 intonaco, 1 tegole, 2 pietra, 3 travi, 4 vetro, 5 ardesia, 6 assi di legno (porte, imposte)
 static func material_of(color: Color) -> int:
-	if COLORS.roofs.has(color) or color == COLORS.slate or color == COLORS.castle_roof:
+	if color == COLORS.slate or color == COLORS.roofs[3]:
+		return 5
+	if COLORS.roofs.has(color) or color == COLORS.castle_roof:
 		return 1
 	if color == COLORS.stone or color == COLORS.stone_dark:
 		return 2
 	if color == COLORS.timber:
 		return 3
-	if color == COLORS.window or color == COLORS.door:
+	if color == COLORS.window:
 		return 4
+	if color == COLORS.door or COLORS.shutters.has(color):
+		return 6
 	return 0
 
 
@@ -165,6 +175,7 @@ func generate() -> void:
 	building_material.shader = load("res://shaders/building.gdshader")
 	building_material.set_shader_parameter("burn_tex", burn_tex)
 	building_material.set_shader_parameter("burn_size", float(BURN_TEX_SIZE))
+	set_textures(building_material, ["plaster", "roof_tiles", "roof_slate", "stone_wall", "timber", "shutter"])
 	for v in villages:
 		if v.kind == "castle":
 			_build_castle(v)
@@ -309,6 +320,7 @@ func _build_terrain_mesh() -> void:
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/terrain.gdshader")
 	terrain_material.set_shader_parameter("terrain_data", data_tex)
+	set_textures(terrain_material, ["grass", "dirt", "rock", "sand", "snow", "cobble"])
 	var vs := PackedVector4Array()
 	for i in 12:
 		if i < villages.size():
@@ -327,6 +339,13 @@ func _build_terrain_mesh() -> void:
 			mi.custom_aabb = AABB(Vector3(-size / 2, SEABED - 30, -size / 2), Vector3(size, 560, size))
 			add_child(mi)
 			terrain_chunks.append(mi)
+
+
+# Collega a un materiale le texture fotografiche (textures/<nome>_diff.jpg e _nor.jpg) come <nome>_d e <nome>_n
+static func set_textures(mat: ShaderMaterial, names: Array) -> void:
+	for n in names:
+		mat.set_shader_parameter(n + "_d", load("res://textures/%s_diff.jpg" % n))
+		mat.set_shader_parameter(n + "_n", load("res://textures/%s_nor.jpg" % n))
 
 
 # Griglia di un blocco con "gonne" verticali sui bordi che coprono le fessure tra livelli diversi
@@ -469,22 +488,93 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		if floors == 2:
 			P.p("box", 0, floor_y + 3.2, 0, w + 0.14, 0.32, d + 0.14, 0, COLORS.timber)
 		P.p("box", 0, floor_y, 0, w + 0.14, 0.3, d + 0.14, 0, COLORS.timber)
+	# dettagli costruttivi: generatore separato, così la sequenza principale (villaggi, alberi) resta quella originale
+	var D := PartMaker.new(B, _frame(x, z, rot), b.id, gmax, Mulberry32.new(b.id * 7919 + 13))
+	var jetty := 0.4 if timbered and floors == 2 else 0.0
+	var upper_y := floor_y + 3.2
+	if jetty > 0:
+		# piano superiore sporgente sulla facciata e sul retro, con la trave che lo regge
+		D.p("box", 0, upper_y, 0, w, wall_top - upper_y, d + jetty * 2, 0, plaster)
+		D.p("box", 0, upper_y - 0.3, 0, w + 0.14, 0.32, d + jetty * 2 + 0.14, 0, COLORS.timber)
 	if w >= d:
-		P.p("roof", 0, wall_top, 0, d + 1.3, rh, w + 1.0, PI / 2, roof_col)
+		P.p("roof", 0, wall_top, 0, d + 1.3 + jetty * 2, rh, w + 1.0, PI / 2, roof_col)
+		D.p("box", 0, wall_top + rh - 0.12, 0, w + 1.1, 0.24, 0.32, 0, roof_col.darkened(0.25))
 	else:
-		P.p("roof", 0, wall_top, 0, w + 1.3, rh, d + 1.0, 0, roof_col)
+		P.p("roof", 0, wall_top, 0, w + 1.3, rh, d + 1.0 + jetty * 2, 0, roof_col)
+		D.p("box", 0, wall_top + rh - 0.12, 0, 0.32, 0.24, d + 1.1 + jetty * 2, 0, roof_col.darkened(0.25))
 	if rng.next() < 0.65:
-		P.p("box", (rng.next() - 0.5) * w * 0.5, wall_top, -d * 0.2, 0.9, rh * 0.95, 0.9, 0, COLORS.stone_dark)
+		var chx := (rng.next() - 0.5) * w * 0.5
+		P.p("box", chx, wall_top, -d * 0.2, 0.9, rh * 0.95, 0.9, 0, COLORS.stone_dark)
+		D.p("box", chx, wall_top + rh * 0.95, -d * 0.2, 1.2, 0.16, 1.2, 0, COLORS.stone)
 	# porta e finestre (le finestre si illuminano quando la casa brucia)
-	P.p("box", (rng.next() - 0.5) * w * 0.3, floor_y - 0.2, d / 2, 1.3, 2.3, 0.3, 0, COLORS.door, 0.5)
+	var door_x := (rng.next() - 0.5) * w * 0.3
+	P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 2.3, 0.3, 0, COLORS.door, 0.5)
+	for s in [-1.0, 1.0]:
+		D.p("box", door_x + s * 0.74, floor_y - 0.2, d / 2, 0.16, 2.5, 0.4, 0, COLORS.timber)
+	D.p("box", door_x, floor_y + 2.1, d / 2, 1.66, 0.2, 0.42, 0, COLORS.timber)
+	D.p("box", door_x, floor_y - 0.55, d / 2 + 0.35, 1.8, 0.35, 0.8, 0, COLORS.stone)
+	var shutter: Color = COLORS.shutters[int(D.rng.next() * COLORS.shutters.size())]
 	for f in floors:
 		var y := floor_y + 1.2 + f * 3.2
+		var j := jetty if f == 1 else 0.0
 		for sx in [-0.3, 0.3]:
-			P.p("box", sx * w, y, d / 2, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
-			P.p("box", sx * w, y, -d / 2, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
+			P.p("box", sx * w, y, d / 2 + j, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
+			P.p("box", sx * w, y, -d / 2 - j, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
+			_window_trim(D, Transform3D(Basis.IDENTITY, Vector3(sx * w, y, d / 2 + j)), shutter)
+			_window_trim(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * w, y, -d / 2 - j)), shutter)
 		P.p("box", w / 2, y, 0, 0.28, 1.0, 1.0, 0, COLORS.window, 1)
 		P.p("box", -w / 2, y, 0, 0.28, 1.0, 1.0, 0, COLORS.window, 1)
+		_window_trim(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, y, 0)), shutter)
+		_window_trim(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, y, 0)), shutter)
+	if timbered:
+		# graticcio: montanti e controventi su ogni parete e per ogni piano
+		for f in floors:
+			var y0 := floor_y if f == 0 else upper_y
+			var y1 := upper_y if f == 0 and floors == 2 else wall_top
+			var j := jetty if f == 1 else 0.0
+			var openings := [-0.3 * w, 0.3 * w]
+			_timber_wall(D, Transform3D(Basis.IDENTITY, Vector3(0, 0, d / 2 + j)), w, y0, y1, openings + ([door_x] if f == 0 else []))
+			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0, -d / 2 - j)), w, y0, y1, openings)
+			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
+			_timber_wall(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
 	return Vector2(w, d).length() / 2
+
+
+# Cornice, davanzale, croce e imposte aperte di una finestra (sistema locale: finestra verso +Z, base a y=0)
+func _window_trim(D: PartMaker, at: Transform3D, shutter: Color) -> void:
+	var parts := [
+		[Vector3(0, 1.0, 0.02), Vector3(1.3, 0.12, 0.36), COLORS.timber],
+		[Vector3(-0.56, 0, 0.02), Vector3(0.12, 1.0, 0.36), COLORS.timber],
+		[Vector3(0.56, 0, 0.02), Vector3(0.12, 1.0, 0.36), COLORS.timber],
+		[Vector3(0, -0.12, 0.1), Vector3(1.4, 0.12, 0.5), COLORS.stone],
+		[Vector3(0, 0, 0.02), Vector3(0.06, 1.0, 0.32), COLORS.timber],
+		[Vector3(0, 0.47, 0.02), Vector3(1.0, 0.06, 0.32), COLORS.timber],
+		[Vector3(-0.9, 0, 0.16), Vector3(0.52, 1.02, 0.06), shutter],
+		[Vector3(0.9, 0, 0.16), Vector3(0.52, 1.02, 0.06), shutter],
+	]
+	for p in parts:
+		D.pt("box", at * Transform3D(Basis.from_scale(p[1]), p[0]), p[2])
+
+
+# Montanti verticali (evitando porte e finestre) e due controventi inclinati agli angoli
+func _timber_wall(D: PartMaker, at: Transform3D, length: float, y0: float, y1: float, openings: Array) -> void:
+	var h := y1 - y0
+	var x := -length / 2 + 1.5
+	while x < length / 2 - 1.2:
+		var free := true
+		for o in openings:
+			if absf(x - o) < 0.95:
+				free = false
+		if free:
+			D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.2, h, 0.14)), Vector3(x, y0, 0.03)), COLORS.timber)
+		x += 1.35
+	var run := minf(1.4, length * 0.2)
+	var lean := atan2(run, h * 0.75)
+	var size := Vector3(0.18, Vector2(run, h * 0.75).length(), 0.12)
+	for s in [-1.0, 1.0]:
+		var bx: float = s * (length / 2 - 0.3)
+		var basis := Basis(Vector3.BACK, s * lean) * Basis.from_scale(size)
+		D.pt("box", at * Transform3D(basis, Vector3(bx, y0, 0.04)), COLORS.timber)
 
 
 func _add_church(B: GeoBuilder, x: float, z: float, rot: float, village) -> void:

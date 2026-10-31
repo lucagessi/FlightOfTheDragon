@@ -11,7 +11,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--breathe` tiene premuto il fuoco,
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -24,7 +24,17 @@ Altezze e rumore del terreno sono calcolati dal codice JavaScript originale ed e
 node godot/tools/export_world.mjs
 ```
 
-Villaggi, edifici e alberi sono generati in GDScript con lo stesso generatore casuale (`mulberry32`, seme 2024).
+Villaggi, edifici e alberi sono generati in GDScript con lo stesso generatore casuale (`mulberry32`, seme 2024);
+i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore separato per edificio.
+
+## Texture
+
+Terreno ed edifici usano texture fotografiche CC0 di [Poly Haven](https://polyhaven.com) in `textures/`
+(elenco in `textures/CREDITS.md`). Per riscaricarle, o cambiarle modificando l'elenco nello script:
+
+```bash
+node godot/tools/fetch_textures.mjs
+```
 
 ## Build
 
@@ -51,6 +61,7 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/game_input.gd` | tastiera, mouse, joystick e combinazioni |
 | `scripts/hud.gd` | HUD, minimappa, aiuto, schermata iniziale |
 | `shaders/` | terreno, edifici in fiamme, mare, pelle e membrana del drago, particelle |
+| `textures/` | texture fotografiche CC0 (colore e normali) |
 
 ## Non ancora portato
 

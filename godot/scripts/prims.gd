@@ -118,7 +118,7 @@ static func _roof() -> Dictionary:
 	return d
 
 
-# Icosaedro suddiviso una volta (IcosahedronGeometry(1, 1)), facce piatte
+# Icosaedro suddiviso una volta (IcosahedronGeometry(1, 1)) con normali lisce: chiome tondeggianti
 static func _icosphere() -> Dictionary:
 	var t := (1.0 + sqrt(5.0)) / 2.0
 	var v := [
@@ -139,5 +139,5 @@ static func _icosphere() -> Dictionary:
 		var bc := ((b + c) * 0.5).normalized()
 		var ca := ((c + a) * 0.5).normalized()
 		for tri in [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]:
-			_tri(d, tri[0], tri[1], tri[2], Vector3.ZERO)
+			_tri_smooth(d, tri[0], tri[1], tri[2], tri[0], tri[1], tri[2], Vector3.ZERO)
 	return d
