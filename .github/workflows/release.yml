@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: # avvio manuale da Actions → Release → Run workflow
 
 permissions:
   contents: write
@@ -29,7 +30,7 @@ jobs:
 
   # Su main: versione da conventional commits, build dell'exe e GitHub Release
   release:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
