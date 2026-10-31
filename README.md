@@ -35,7 +35,16 @@ nella GitHub Release `v<versione>`. `fix:` → patch, `feat:` → minor, `feat!:
 | Accelera / rallenta | Shift o E / Q o Z | A / B |
 | Sputa fuoco | Spazio o clic sinistro | RT |
 | Camera | destro + trascina, rotella | levetta destra |
+| Atterra / decolla | L | pressione levetta sinistra |
 | Aiuto · Pausa · Audio · Inverti asse | H · P · M · I | Back · Start |
+
+### A terra
+
+Vicino al suolo premi **L** per atterrare (non sull'acqua). A terra il drago cammina: W/S avanti e indietro,
+A/D per girare, Shift per correre. Il mouse (clicca per catturarlo, Esc lo libera), le frecce o la levetta destra
+muovono la testa; girandola molto di lato il corpo la segue. La camera sta dietro al drago, orientata come la mira,
+e il fuoco (soffio e palle di fuoco) va esattamente nel mirino. Da fermo, dopo qualche secondo, il drago si guarda
+intorno da solo. Premi di nuovo **L** (joystick: pressione della levetta sinistra) per decollare.
 
 ### Combinazioni speciali
 
@@ -44,6 +53,16 @@ nella GitHub Release `v<versione>`. `fix:` → patch, `feat:` → minor, `feat!:
 - **Piroetta**: doppio tocco di A o D (joystick: LB / RB)
 - **Giro della morte**: doppio tocco di W (joystick: Y)
 
+### Draghi guardiani
+
+Cinque draghi rivali (Smeraldo, Zaffiro, Ambra e il più robusto drago d'Ombra, che difende il castello) proteggono
+ciascuno un villaggio e gli volano intorno. Sono neutrali finché non attacchi loro o incendi il loro villaggio:
+allora diventano ostili, ti inseguono e attaccano con fiamme e palle di fuoco viola; se lasci il loro territorio
+dopo un po' si calmano. Hanno una barra della vita (dorata se neutrali, rossa se ostili): colpiscili con soffio,
+palle di fuoco o tempesta finché non precipitano. Un villaggio rimasto scoperto riceve più tardi un nuovo guardiano.
+Con un drago davanti si attiva la mira assistita. Se la tua vita si esaurisce precipiti e riparti dopo qualche
+secondo; la vita si rigenera se non vieni colpito.
+
 ## Struttura
 
 - `src/main.js` — ciclo di gioco, camera in terza persona, HUD, minimappa
@@ -51,5 +70,6 @@ nella GitHub Release `v<versione>`. `fix:` → patch, `feat:` → minor, `feat!:
 - `src/world.js` — terreno, villaggi, castello, alberi, incendi
 - `src/water.js` — shader del mare (onde, riflessi, schiuma, spostamento d'aria)
 - `src/sky.js`, `src/clouds.js`, `src/flare.js` — cielo, nuvole, bagliori del sole
+- `src/enemies.js` — draghi nemici: comportamento, attacchi, vita, abbattimento
 - `src/fx.js` — particelle, palle di fuoco, tempesta di fuoco, luci dinamiche
 - `src/input.js`, `src/audio.js` — input con combo e audio procedurale

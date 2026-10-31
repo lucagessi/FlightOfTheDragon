@@ -44,15 +44,25 @@ function scaleTexture() {
   return t;
 }
 
-const easeInOut = (p) => p * p * p * (p * (p * 6 - 15) + 10);
+let SCALE_TEX = null;
+const DYING_CTRL = { steer: 0, climb: -1, throttle: -1, fire: false };
+const STAND = 3.7; // altezza del corpo sopra il suolo quando è sulle zampe
+const easeInOut =(p) => p * p * p * (p * (p * 6 - 15) + 10);
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0), YAX = new THREE.Vector3(0, 1, 0), ORIGIN = new THREE.Vector3();
 
+// Colori del drago del giocatore; i nemici ne usano altri
+export const RED_PALETTE = {
+  back: [0.42, 0.05, 0.035], ridge: [0.2, 0.02, 0.02], belly: [0.85, 0.6, 0.28],
+  skin: 0x5a0a07, dark: 0x3a0806, membrane: 0x6a120c, membraneGlow: 0x240402, eye: [1, 0.75, 0.15],
+};
+
 export class Dragon {
-  constructor(scene) {
+  constructor(scene, { scale = 0.62, palette = RED_PALETTE } = {}) {
+    this.palette = palette;
     this.root = new THREE.Group();
     this.model = new THREE.Group();
-    this.model.scale.setScalar(0.62);
+    this.model.scale.setScalar(scale);
     this.root.add(this.model);
     scene.add(this.root);
     this.position = this.root.position;
@@ -72,15 +82,27 @@ export class Dragon {
     this.altitude = 60; this.groundY = 0;
     this.tailTurn = 0; this.tailLift = 0; this.neckTurn = 0;
     this.outOfBounds = false;
+    this.dying = false;
+    this.aimTarget = null;
+    this.aimWeight = 0;
+    // a terra: 'air' | 'landing' | 'ground' | 'takeoff'
+    this.mode = 'air';
+    this.modeT = 0;
+    this.groundBlend = 0; this.walkAmount = 0; this.gaitPhase = 0; this.neckLift = 0;
+    this.headYaw = 0; this.headPitch = 0;
+    this.aimDir = new THREE.Vector3(0, 0, 1);
+    this.aimPoint = new THREE.Vector3();
+    this.idleT = 0;
+    this.idleBase = null;
 
-    const scaleTex = scaleTexture();
-    scaleTex.repeat.set(1, 1);
+    const scaleTex = SCALE_TEX || (SCALE_TEX = scaleTexture());
     this.mats = {
       body: new THREE.MeshStandardMaterial({ vertexColors: true, map: scaleTex, bumpMap: scaleTex, bumpScale: 3, roughness: 0.45, metalness: 0.2 }),
-      dark: new THREE.MeshStandardMaterial({ color: 0x3a0806, roughness: 0.5, metalness: 0.2 }),
-      membrane: new THREE.MeshStandardMaterial({ color: 0x6a120c, side: THREE.DoubleSide, roughness: 0.7, metalness: 0, emissive: 0x240402 }),
+      skin: new THREE.MeshStandardMaterial({ color: palette.skin, roughness: 0.45, metalness: 0.2, map: scaleTex, bumpMap: scaleTex, bumpScale: 2 }),
+      dark: new THREE.MeshStandardMaterial({ color: palette.dark, roughness: 0.5, metalness: 0.2 }),
+      membrane: new THREE.MeshStandardMaterial({ color: palette.membrane, side: THREE.DoubleSide, roughness: 0.7, metalness: 0, emissive: palette.membraneGlow }),
       horn: new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.35, metalness: 0.05 }),
-      eye: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(1, 0.75, 0.15), emissiveIntensity: 6 }),
+      eye: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(...palette.eye), emissiveIntensity: 6 }),
       mouth: new THREE.MeshStandardMaterial({ color: 0x200000, emissive: new THREE.Color(1, 0.3, 0.05), emissiveIntensity: 0 }),
     };
 
@@ -100,7 +122,8 @@ export class Dragon {
     const verts = RINGS * (RAD + 1);
     this.bodyPos = new Float32Array(verts * 3);
     const col = new Float32Array(verts * 3), uv = new Float32Array(verts * 2);
-    const back = new THREE.Color(0.42, 0.05, 0.035), ridge = new THREE.Color(0.2, 0.02, 0.02), belly = new THREE.Color(0.85, 0.6, 0.28);
+    const p = this.palette;
+    const back = new THREE.Color(...p.back), ridge = new THREE.Color(...p.ridge), belly = new THREE.Color(...p.belly);
     const c = new THREE.Color();
     for (let i = 0; i < RINGS; i++) {
       for (let j = 0; j <= RAD; j++) {
@@ -138,7 +161,7 @@ export class Dragon {
     const h = new THREE.Group();
     this.head = h;
     this.model.add(h);
-    const skin = new THREE.MeshStandardMaterial({ color: 0x5a0a07, roughness: 0.45, metalness: 0.2, map: this.mats.body.map, bumpMap: this.mats.body.map, bumpScale: 2 });
+    const skin = this.mats.skin;
     const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, parent = h) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
@@ -242,7 +265,8 @@ export class Dragon {
   }
 
   buildLegs() {
-    const leg = (x, y, z, scale, tuck) => {
+    this.legs = [];
+    const leg = (x, y, z, scale, tuck, phase) => {
       const g = new THREE.Group();
       g.position.set(x, y, z);
       g.rotation.x = tuck;
@@ -264,10 +288,23 @@ export class Dragon {
         c.rotation.x = Math.PI * 0.85;
         shin.add(c);
       }
+      this.legs.push({ g, shin, tuck, phase });
     };
+    // passo diagonale: posteriore sinistra con anteriore destra
     for (const s of [1, -1]) {
-      leg(s * 1.7, -0.8, -7.5, 1.0, 1.1);
-      leg(s * 1.6, -1.2, 1.8, 0.7, 1.3);
+      leg(s * 1.7, -0.8, -7.5, 1.0, 1.1, s > 0 ? 0 : Math.PI);
+      leg(s * 1.6, -1.2, 1.8, 0.92, 1.3, s > 0 ? Math.PI : 0);
+    }
+  }
+
+  // Zampe: ripiegate in volo, distese e in movimento a terra
+  updateLegs() {
+    const gb = this.groundBlend, walk = this.walkAmount;
+    for (const l of this.legs) {
+      const sw = Math.sin(this.gaitPhase + l.phase);
+      const lift = Math.max(0, Math.cos(this.gaitPhase + l.phase));
+      l.g.rotation.x = lerp(l.tuck, 0.08 + sw * 0.38 * walk, gb);
+      l.shin.rotation.x = lerp(-1.2, -0.22 - lift * 0.6 * walk, gb);
     }
   }
 
@@ -279,11 +316,11 @@ export class Dragon {
     if (t < 0.5) {
       const k = (0.5 - t) / 0.5, kk = k * k;
       x += Math.sin(time * 1.7 - t * 9) * 0.9 * kk + this.tailTurn * kk * 5;
-      y += -k * 1.0 + Math.sin(time * 1.3 - t * 7) * 0.35 * kk + this.tailLift * kk * 3;
+      y += -k * 1.0 + Math.sin(time * 1.3 - t * 7) * 0.35 * kk + this.tailLift * kk * 3 - this.groundBlend * k * 2.2;
     }
     if (t > 0.72) {
       const k = (t - 0.72) / 0.28, kk = k * k;
-      y += Math.pow(k, 1.4) * 2.6 - this.neckDown * kk * 3.2;
+      y += Math.pow(k, 1.4) * 2.6 - this.neckDown * kk * 3.2 + this.neckLift * kk * 3;
       x += this.neckTurn * kk * 3.5;
     }
     return out.set(x, y, z);
@@ -332,7 +369,14 @@ export class Dragon {
     // la testa guarda un po' in basso, e ancora di più quando sputa fuoco
     _v.copy(T[n]);
     _v.y -= 0.12 + this.neckDown * 0.3;
-    _m.lookAt(_v.normalize(), ORIGIN, UP);
+    _v.normalize();
+    // mira assistita: il collo si piega verso il bersaglio se è davanti
+    if (this.aimTarget) {
+      _v2.copy(this.aimTarget).applyMatrix4(this.inv).sub(this.head.position).normalize();
+      this.aimOk = _v.angleTo(_v2) < 0.8;
+      if (this.aimWeight > 0.001) _v.lerp(_v2, this.aimWeight).normalize();
+    } else this.aimOk = false;
+    _m.lookAt(_v, ORIGIN, UP);
     this.head.quaternion.setFromRotationMatrix(_m);
     this.jawPivot.rotation.x = this.jaw;
   }
@@ -342,14 +386,16 @@ export class Dragon {
     const sn = Math.sin(ph), cs = Math.cos(ph);
     const fold = this.fold;
     const amp = this.flapAmp * (1 - fold);
+    const gb = this.groundBlend;
     for (const w of this.wings) {
       const s = w.s;
-      w.flap.rotation.z = s * (0.15 + amp * 0.85 * sn - fold * 0.2);
-      w.flap.rotation.x = amp * 0.18 * cs;
-      w.elbow.rotation.y = s * (0.28 + fold * 0.9 + 0.35 * Math.max(0, cs) * amp);
-      w.wrist.rotation.y = -s * (0.08 + fold * 0.95 + 0.25 * Math.max(0, cs) * amp);
-      w.wrist.rotation.z = s * 0.3 * amp * Math.sin(ph - 1.0);
-      for (let i = 0; i < 4; i++) w.fingers[i].rotation.y = s * w.alphas[i] * (1 - fold * 0.7 - Math.max(0, cs) * 0.15 * amp);
+      // a terra le ali sono raccolte lungo i fianchi
+      w.flap.rotation.z = s * lerp(0.15 + amp * 0.85 * sn - fold * 0.2, 0.55, gb);
+      w.flap.rotation.x = lerp(amp * 0.18 * cs, 0, gb);
+      w.elbow.rotation.y = s * lerp(0.28 + fold * 0.9 + 0.35 * Math.max(0, cs) * amp, 2.15, gb);
+      w.wrist.rotation.y = -s * lerp(0.08 + fold * 0.95 + 0.25 * Math.max(0, cs) * amp, 2.45, gb);
+      w.wrist.rotation.z = s * lerp(0.3 * amp * Math.sin(ph - 1.0), -0.25, gb);
+      for (let i = 0; i < 4; i++) w.fingers[i].rotation.y = s * w.alphas[i] * lerp(1 - fold * 0.7 - Math.max(0, cs) * 0.15 * amp, 0.12, gb);
     }
   }
 
@@ -374,14 +420,20 @@ export class Dragon {
   }
 
   startRoll(dir) {
-    if (this.maneuver) return false;
+    if (this.maneuver || this.mode !== 'air') return false;
     this.maneuver = { type: 'roll', t: 0, dur: 0.85, dir };
     return true;
   }
   startLoop() {
-    if (this.maneuver) return false;
+    if (this.maneuver || this.mode !== 'air') return false;
     this.maneuver = { type: 'loop', t: 0, dur: 2.6 };
     return true;
+  }
+
+  dispose() {
+    this.root.parent?.remove(this.root);
+    this.root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    for (const m of Object.values(this.mats)) m.dispose();
   }
 
   getMouth(outPos, outDir) {
@@ -390,12 +442,25 @@ export class Dragon {
   }
 
   // ---------------- VOLO ----------------
-  update(dt, ctrl, world) {
+  update(dt, ctrl, world, animate = true) {
     this.time += dt;
     const events = { downstroke: false };
+    // colpito a morte: precipita avvitandosi
+    if (this.dying) {
+      ctrl = DYING_CTRL;
+      this.maneuver = null;
+      this.deathSpin = (this.deathSpin || 0) + dt * 4.5;
+    } else this.deathSpin = 0;
+    this.aimWeight = damp(this.aimWeight, this.aimTarget && this.aimOk ? 0.85 : 0, 6, dt);
     this.throttle = clamp(this.throttle + ctrl.throttle * 0.5 * dt, 0, 1);
     this.steer = damp(this.steer, ctrl.steer, 4, dt);
     this.climb = damp(this.climb, ctrl.climb, 3, dt);
+    if (this.mode !== 'air') return this.updateGround(dt, ctrl, world, animate, events);
+    this.groundBlend = damp(this.groundBlend, 0, 5, dt);
+    this.walkAmount = 0;
+    this.neckLift = damp(this.neckLift, 0, 4, dt);
+    this.headYaw = damp(this.headYaw, 0, 4, dt);
+    this.headPitch = damp(this.headPitch, 0, 4, dt);
 
     // confine del mondo: oltre una certa distanza il drago vira verso il centro
     const distC = Math.hypot(this.position.x, this.position.z);
@@ -409,14 +474,14 @@ export class Dragon {
     this.outOfBounds = distC > 5200;
     const steer = clamp(this.steer + autoSteer, -1, 1);
 
-    this.pitch = damp(this.pitch, this.climb * 0.62, 2.5, dt);
+    this.pitch = damp(this.pitch, this.dying ? -0.85 : this.climb * 0.62, this.dying ? 1.2 : 2.5, dt);
     const base = 26 + this.throttle * 124;
     this.speed = damp(this.speed, base - Math.sin(this.pitch) * 50, 0.9, dt);
     this.yaw -= steer * (1.15 - this.throttle * 0.45) * dt;
     this.roll = damp(this.roll, steer * 0.85, 4, dt);
 
     let lateral = 0;
-    this.extraPitch = 0; this.extraRoll = 0;
+    this.extraPitch = 0; this.extraRoll = this.deathSpin;
     const m = this.maneuver;
     if (m) {
       m.t += dt;
@@ -443,8 +508,8 @@ export class Dragon {
     // niente atterraggio: quota minima sopra terra/mare
     const g = Math.max(world.groundHeight(this.position.x, this.position.z), 0);
     const ahead = Math.max(world.groundHeight(this.position.x + this.forward.x * 60, this.position.z + this.forward.z * 60), 0);
-    const minY = g + 8;
-    if (this.position.y < ahead + 14 && this.pitch < 0.35 && !m) this.pitch = damp(this.pitch, 0.4, 2, dt);
+    const minY = g + (this.dying ? 1.5 : 8);
+    if (this.position.y < ahead + 14 && this.pitch < 0.35 && !m && !this.dying) this.pitch = damp(this.pitch, 0.4, 2, dt);
     if (this.position.y < minY) {
       this.position.y = minY;
       if (this.pitch < 0) this.pitch *= Math.exp(-8 * dt);
@@ -475,13 +540,168 @@ export class Dragon {
     this.tailLift = -this.climb * 0.5 + diving * 0.4;
     this.neckTurn = -this.steer * 0.9;
     this.neckDown = damp(this.neckDown, this.breathing ? 0.75 : 0.1, 4, dt);
+    return this.finishFrame(dt, animate, events);
+  }
+
+  finishFrame(dt, animate, events) {
     this.jaw = damp(this.jaw, this.breathing ? 0.55 : this.roaring > 0 ? 0.7 : 0.04, 10, dt);
     this.roaring = Math.max(0, this.roaring - dt);
     this.mats.mouth.emissiveIntensity = damp(this.mats.mouth.emissiveIntensity, this.breathing ? 8 : 0.3, 8, dt);
-
-    this.updateBody();
-    this.updateWings();
-    this.updateMembranes();
+    if (animate) {
+      this.updateBody();
+      this.updateWings();
+      this.updateLegs();
+      this.updateMembranes();
+    }
     return events;
+  }
+
+  // ---------------- A TERRA ----------------
+  // Prova ad atterrare: restituisce 'ok' oppure il motivo per cui non si può
+  land(world) {
+    if (this.mode !== 'air' || this.dying || this.maneuver) return 'busy';
+    const g = world.groundHeight(this.position.x, this.position.z);
+    if (g < 1) return 'water';
+    if (this.position.y - g > 70) return 'high';
+    this.mode = 'landing'; this.modeT = 0;
+    this.landFromY = this.position.y;
+    this.headYaw = 0; this.headPitch = 0;
+    return 'ok';
+  }
+
+  takeOff() {
+    if (this.mode !== 'ground' || this.dying) return false;
+    this.mode = 'takeoff'; this.modeT = 0;
+    return true;
+  }
+
+  updateGround(dt, ctrl, world, animate, events) {
+    this.modeT += dt;
+    const pos = this.position;
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+    let g = world.groundHeight(pos.x, pos.z);
+    let flapping = false;
+
+    if (this.mode === 'landing') {
+      // planata finale: rallenta, frena con le ali e appoggia le zampe
+      const p = clamp(this.modeT / 1.6, 0, 1);
+      this.speed = damp(this.speed, 0, 2.2, dt);
+      pos.x += fx * this.speed * dt; pos.z += fz * this.speed * dt;
+      g = world.groundHeight(pos.x, pos.z);
+      pos.y = lerp(this.landFromY, g + STAND, easeInOut(p));
+      this.pitch = Math.sin(Math.PI * p) * 0.35;
+      this.groundBlend = smoothstep(0.55, 1, p);
+      flapping = true;
+      if (p >= 1) {
+        if (g < 1) { this.mode = 'takeoff'; this.modeT = 0; } // finito in acqua: riparte
+        else { this.mode = 'ground'; this.speed = 0; this.throttle = 0; events.touchdown = true; }
+      }
+    } else if (this.mode === 'takeoff') {
+      // balzo e battiti potenti
+      const p = clamp(this.modeT / 1.1, 0, 1);
+      this.speed = damp(this.speed, 45, 2, dt);
+      pos.x += fx * this.speed * dt; pos.z += fz * this.speed * dt;
+      g = world.groundHeight(pos.x, pos.z);
+      pos.y = Math.max(pos.y + (12 + 30 * p) * dt, Math.max(g, 0) + STAND);
+      this.pitch = 0.35 * p;
+      this.groundBlend = 1 - smoothstep(0, 0.45, p);
+      flapping = true;
+      if (p >= 1) {
+        this.mode = 'air'; this.pitch = 0.35; this.throttle = Math.max(this.throttle, 0.35); this.climb = 0.5;
+      }
+    } else {
+      // camminata: A/D ruota il corpo, W/S avanti e indietro, Shift corre
+      let turn = 0;
+      if (!this.dying) {
+        turn = -ctrl.steer * 1.1;
+        // la testa girata troppo trascina anche il corpo
+        if (Math.abs(this.headYaw) > 0.6) {
+          const ex = this.headYaw - Math.sign(this.headYaw) * 0.6;
+          turn += ex * 4;
+          this.headYaw -= ex * 4 * dt;
+        }
+      }
+      this.yaw += turn * dt;
+      const target = this.dying ? 0 : ctrl.climb > 0 ? ctrl.climb * (ctrl.throttle > 0 ? 18 : 9) : ctrl.climb * 4.5;
+      this.speed = damp(this.speed, target, 4, dt);
+      const dir = Math.sign(this.speed);
+      const nx = pos.x + fx * this.speed * dt, nz = pos.z + fz * this.speed * dt;
+      // davanti (o dietro): acqua, edifici o pareti ripide bloccano il passo
+      const px = nx + fx * 8 * dir, pz = nz + fz * 8 * dir;
+      const gp = world.groundHeight(px, pz);
+      const blocked = gp < 0.8 || Math.abs(gp - g) > 7 || world.buildingAt(px, gp + 3, pz);
+      if (blocked) this.speed = 0;
+      else { pos.x = nx; pos.z = nz; g = world.groundHeight(pos.x, pos.z); }
+      pos.y = damp(pos.y, g + STAND, 10, dt);
+      const hF = world.groundHeight(pos.x + fx * 7, pos.z + fz * 7), hB = world.groundHeight(pos.x - fx * 7, pos.z - fz * 7);
+      this.pitch = damp(this.pitch, Math.atan2(hF - hB, 14) * 0.8, 6, dt);
+      this.groundBlend = damp(this.groundBlend, 1, 6, dt);
+      this.walkAmount = damp(this.walkAmount, Math.min(1, Math.abs(this.speed) / 8 + Math.abs(turn) * 0.4), 6, dt);
+      this.gaitPhase += (Math.abs(this.speed) * 0.55 + Math.abs(turn) * 2.5) * dt;
+      this.tailTurn = damp(this.tailTurn, turn * 0.6 + Math.sin(this.time * 0.7) * 0.25, 3, dt);
+
+      // la testa si guarda intorno: frecce/levetta destra/mouse; da ferma esplora da sola
+      const ax = ctrl.aimX || 0, ay = ctrl.aimY || 0, mdx = ctrl.mouseDX || 0, mdy = ctrl.mouseDY || 0;
+      const input = Math.abs(ax) + Math.abs(ay) + Math.abs(mdx) + Math.abs(mdy) > 0.01 || this.breathing
+        || Math.abs(ctrl.climb) > 0.1 || Math.abs(ctrl.steer) > 0.1;
+      if (input) { this.idleT = 0; this.idleBase = null; } else this.idleT += dt;
+      if (!this.dying) {
+        // levetta/frecce con risposta progressiva: precisa vicino al centro, rapida a fondo corsa
+        const cx = Math.sign(ax) * ax * ax, cy2 = Math.sign(ay) * ay * ay;
+        this.headYaw += -cx * 2.6 * dt - mdx * 0.003;
+        this.headPitch += cy2 * 1.8 * dt - mdy * 0.003;
+        // da fermo, dopo un po', si guarda intorno vicino a dove stava mirando
+        if (this.idleT > 6) {
+          if (!this.idleBase) this.idleBase = { yaw: this.headYaw, pitch: this.headPitch, t: this.time };
+          const t = this.time - this.idleBase.t;
+          this.headYaw = damp(this.headYaw, this.idleBase.yaw + Math.sin(t * 0.37) * 0.35, 0.8, dt);
+          this.headPitch = damp(this.headPitch, this.idleBase.pitch + Math.sin(t * 0.23) * 0.12, 0.8, dt);
+        }
+      }
+      this.headYaw = clamp(this.headYaw, -1.4, 1.4);
+      this.headPitch = clamp(this.headPitch, -0.75, 0.9);
+    }
+
+    this.roll = damp(this.roll, 0, 5, dt);
+    const pt = this.pitch;
+    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    this.forward.set(sy * Math.cos(pt), Math.sin(pt), cy * Math.cos(pt));
+    this.up.set(-sy * Math.sin(pt), Math.cos(pt), -cy * Math.sin(pt));
+    this.velocity.set(sy * this.speed, 0, cy * this.speed);
+    this.altitude = pos.y - Math.max(g, 0);
+    this.groundY = Math.max(g, 0);
+    this.outOfBounds = false;
+    this.root.rotation.set(-pt, this.yaw, this.roll, 'YXZ');
+
+    // direzione di mira (testa) nel mondo
+    const ay2 = this.yaw + this.headYaw, hp = this.headPitch;
+    this.aimDir.set(Math.sin(ay2) * Math.cos(hp), Math.sin(hp), Math.cos(ay2) * Math.cos(hp));
+    this.head.getWorldPosition(this.aimPoint).addScaledVector(this.aimDir, 200);
+    this.aimTarget = this.aimPoint;
+    this.aimOk = true;
+    this.aimWeight = this.groundBlend;
+
+    // ali: battiti forti in atterraggio/decollo, ferme a terra
+    if (flapping) {
+      this.flapFreq = damp(this.flapFreq, 2.6, 4, dt);
+      this.flapAmp = damp(this.flapAmp, 1.05, 4, dt);
+      this.power = 1.2;
+      this.fold = damp(this.fold, 0, 6, dt);
+      const prevCos = Math.cos(this.flapPhase);
+      this.flapPhase += dt * this.flapFreq * Math.PI * 2;
+      if (prevCos > 0 && Math.cos(this.flapPhase) <= 0) events.downstroke = true;
+    } else {
+      this.flapAmp = damp(this.flapAmp, 0, 4, dt);
+      this.power = 0.3;
+    }
+    this.model.position.y = lerp(-Math.sin(this.flapPhase - 0.6) * 0.35 * this.flapAmp,
+      Math.sin(this.time * 1.4) * 0.08 + Math.abs(Math.sin(this.gaitPhase)) * 0.18 * this.walkAmount, this.groundBlend);
+
+    // collo alzato e girato verso la mira
+    this.tailLift = 0;
+    this.neckLift = damp(this.neckLift, this.groundBlend * (0.7 + this.headPitch * 0.9), 5, dt);
+    this.neckTurn = damp(this.neckTurn, this.headYaw * 0.9 * this.groundBlend, 6, dt);
+    this.neckDown = damp(this.neckDown, 0, 4, dt);
+    return this.finishFrame(dt, animate, events);
   }
 }

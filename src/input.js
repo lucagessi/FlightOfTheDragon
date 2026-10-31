@@ -13,6 +13,7 @@ export class Input {
     this.look = { x: 0, y: 0 };
     this.zoom = 0;
     this.dragging = false;
+    this.mouseDX = 0; this.mouseDY = 0;
     this.padPrev = [];
     this.padAxesPrev = { left: false, right: false, up: false, down: false };
     this.padConnected = false;
@@ -34,17 +35,26 @@ export class Input {
       const l = logical(e.code);
       if (l) this.press(this.adjust(l));
       if (e.code === 'KeyH' || e.code === 'F1') this.actions.push('help');
-      if (e.code === 'KeyP' || e.code === 'Escape') this.actions.push('pause');
+      // Esc che libera il mouse catturato non deve anche mettere in pausa
+      const escFreesMouse = e.code === 'Escape' && (document.pointerLockElement || performance.now() - this.unlockAt < 400);
+      if (e.code === 'KeyP' || (e.code === 'Escape' && !escFreesMouse)) this.actions.push('pause');
       if (e.code === 'KeyM') this.actions.push('mute');
       if (e.code === 'KeyI') { this.invertY = !this.invertY; this.actions.push('invert'); }
       if (e.code === 'KeyC') this.actions.push('camera');
+      if (e.code === 'KeyL') this.actions.push('land');
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
 
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.dom = dom;
+    this.wantLock = false;
+    this.unlockAt = -1e9;
+    document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement) this.unlockAt = performance.now(); });
     dom.addEventListener('mousedown', (e) => {
       this.anyPress = true;
+      // a terra un clic cattura il mouse per mirare liberamente (Esc lo rilascia)
+      if (this.wantLock && document.pointerLockElement !== dom) dom.requestPointerLock?.();
       if (e.button === 0) { this.mouseFire = true; this.press('fire'); }
       if (e.button === 2) this.dragging = true;
     });
@@ -53,7 +63,9 @@ export class Input {
       if (e.button === 2) this.dragging = false;
     });
     addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement === dom) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; return; }
       if (!this.dragging) return;
+      this.mouseDX += e.movementX; this.mouseDY += e.movementY;
       this.look.x = Math.max(-1, Math.min(1, this.look.x - e.movementX * 0.004));
       this.look.y = Math.max(-0.6, Math.min(0.8, this.look.y + e.movementY * 0.003));
     });
@@ -61,6 +73,14 @@ export class Input {
     addEventListener('gamepadconnected', () => { this.padConnected = true; this.actions.push('pad'); });
     addEventListener('gamepaddisconnected', () => { this.padConnected = false; });
   }
+
+  // Il puntatore resta catturato solo mentre il drago è a terra
+  setPointerLock(want) {
+    this.wantLock = want;
+    if (!want && document.pointerLockElement === this.dom) document.exitPointerLock();
+  }
+
+  get pointerLocked() { return document.pointerLockElement === this.dom; }
 
   adjust(l) {
     if (this.invertY && (l === 'up' || l === 'down')) return l === 'up' ? 'down' : 'up';
@@ -117,6 +137,8 @@ export class Input {
     if (edge('y')) this.actions.push('loop');
     if (edge('lb')) this.actions.push('rollLeft');
     if (edge('rb')) this.actions.push('rollRight');
+    if (btn(10) && !prev.l3) this.actions.push('land'); // pressione della levetta sinistra
+    state.l3 = btn(10);
     if (edge('start')) this.actions.push('pause');
     if (edge('back')) this.actions.push('help');
     // levetta: anche i "colpetti" contano per le combo (doppio colpetto = piroetta)
@@ -141,18 +163,27 @@ export class Input {
     let throttle = (has('ShiftLeft', 'ShiftRight', 'KeyE') ? 1 : 0) - (has('KeyQ', 'KeyZ') ? 1 : 0);
     let fire = has('Space') || this.mouseFire;
     let lookX = 0, lookY = 0;
+    // a terra: lettere per camminare, frecce per muovere la testa
+    let walkSteer = (has('KeyD') ? 1 : 0) - (has('KeyA') ? 1 : 0);
+    let walk = (has('KeyW') ? 1 : 0) - (has('KeyS') ? 1 : 0);
+    let aimX = (has('ArrowRight') ? 1 : 0) - (has('ArrowLeft') ? 1 : 0);
+    let aimY = (has('ArrowUp') ? 1 : 0) - (has('ArrowDown') ? 1 : 0);
 
     const pad = this.pollPad();
     if (pad) {
-      if (Math.abs(pad.lx) > 0) steer = pad.lx;
-      if (Math.abs(pad.ly) > 0) climb = this.invertY ? pad.ly : -pad.ly;
-      if (pad.dl) steer = -1; if (pad.dr) steer = 1;
-      if (pad.du) climb = this.invertY ? -1 : 1; if (pad.dd) climb = this.invertY ? 1 : -1;
+      if (Math.abs(pad.lx) > 0) steer = walkSteer = pad.lx;
+      if (Math.abs(pad.ly) > 0) { climb = this.invertY ? pad.ly : -pad.ly; walk = -pad.ly; }
+      if (pad.dl) steer = walkSteer = -1; if (pad.dr) steer = walkSteer = 1;
+      if (pad.du) { climb = this.invertY ? -1 : 1; walk = 1; } if (pad.dd) { climb = this.invertY ? 1 : -1; walk = -1; }
       if (pad.a) throttle = 1;
       if (pad.b) throttle = -1;
       if (pad.rt > 0.3) fire = true;
       lookX = -pad.rx; lookY = pad.ry;
+      if (Math.abs(pad.rx) > 0) aimX = pad.rx;
+      if (Math.abs(pad.ry) > 0) aimY = this.invertY ? pad.ry : -pad.ry;
     }
+    const mouseDX = this.mouseDX, mouseDY = this.mouseDY;
+    this.mouseDX = this.mouseDY = 0;
     if (!this.dragging) {
       this.look.x *= Math.exp(-dt * 1.5);
       this.look.y *= Math.exp(-dt * 1.5);
@@ -165,6 +196,7 @@ export class Input {
       throttle, fire,
       lookX: this.look.x + lookX, lookY: this.look.y + lookY * 0.6,
       zoom: this.zoom,
+      walkSteer, walk, aimX, aimY, mouseDX, mouseDY,
       actions,
     };
   }

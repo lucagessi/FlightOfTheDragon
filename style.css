@@ -42,6 +42,29 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; margin: 0 1px; 
 .fill.fire { background: linear-gradient(90deg, #ff3d00, #ffc247); }
 .fill.storm { background: linear-gradient(90deg, #8a1cff, #ff4d6d); }
 .fill.storm.ready { box-shadow: 0 0 10px #ff4d6d; }
+.fill.hp { background: linear-gradient(90deg, #2fbf5a, #b6f06a); }
+.fill.hp.low { background: linear-gradient(90deg, #c4161c, #ff6a4d); animation: pulse 0.5s infinite alternate; }
+#score .sub span.kills { color: #ff8080; }
+
+#enemyBars { position: absolute; inset: 0; pointer-events: none; }
+.ebar { position: absolute; left: 0; top: 0; width: 120px; text-align: center; will-change: transform; }
+.ebar .ename { font: 600 11px 'Cinzel', serif; letter-spacing: 0.04em; margin-bottom: 3px; white-space: nowrap; }
+.ebar .etrack { height: 6px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 3px; overflow: hidden; }
+.ebar .ehome { font: 10px 'Inter', sans-serif; opacity: 0.75; margin: -2px 0 3px; white-space: nowrap; }
+.ebar .efill { height: 100%; background: linear-gradient(90deg, #c99a1c, #ffd76a); transition: width 0.12s linear; }
+.ebar.hostile .efill { background: linear-gradient(90deg, #d0161c, #ff7a3d); }
+.ebar.hostile .ename { color: #ff8a70; }
+.ebar.dying { opacity: 0.4 !important; }
+
+#crosshair { position: absolute; left: 50%; top: 46%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 2px solid rgba(255, 90, 60, 0.9); border-radius: 50%; box-shadow: 0 0 10px rgba(255, 80, 40, 0.8); }
+#crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; background: #ff5a3c; border-radius: 50%; }
+#crosshair.ground { width: 22px; height: 22px; margin: -11px 0 0 -11px; border-color: rgba(255, 240, 220, 0.85); box-shadow: 0 0 6px rgba(0, 0, 0, 0.6); }
+#crosshair.ground::after { background: #fff3dc; }
+#crosshair.neutral { border-color: rgba(255, 200, 60, 0.9); box-shadow: 0 0 10px rgba(255, 190, 40, 0.7); }
+#crosshair.neutral::after { background: #ffc23a; }
+#groundHint { position: absolute; top: 86px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 460px); padding: 6px 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; text-align: center; }
+@media (max-width: 700px) { #groundHint { top: auto; bottom: 200px; max-width: 90vw; } }
+#hurt { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(200, 0, 0, 0.75) 100%); }
 
 #score { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; text-align: center; font: 600 15px 'Cinzel', serif; }
 #score span { color: var(--gold); }

@@ -114,7 +114,7 @@ export class AudioEngine {
     o.start(t); o.stop(t + 1);
   }
 
-  roar() {
+  roar(vol = 1) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;
     const filter = ctx.createBiquadFilter();
@@ -124,7 +124,7 @@ export class AudioEngine {
     filter.frequency.linearRampToValueAtTime(300, t + 2.0);
     const g = ctx.createGain();
     filter.connect(g).connect(this.master);
-    this.env(g, 0.55, 0.15, 1.9);
+    this.env(g, 0.55 * vol, 0.15, 1.9);
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 23;
     const lfoGain = ctx.createGain();
@@ -141,7 +141,7 @@ export class AudioEngine {
       o.start(t); o.stop(t + 2.2);
     }
     lfo.start(t); lfo.stop(t + 2.2);
-    this.burst(this.white, 'bandpass', 900, 400, 0.25, 0.1, 1.8, 2);
+    this.burst(this.white, 'bandpass', 900, 400, 0.25 * vol, 0.1, 1.8, 2);
   }
 
   crackle() {

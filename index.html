@@ -25,14 +25,19 @@
     <div id="stats">
       <div class="row big"><span id="speed">0</span><small>km/h</small></div>
       <div class="row"><span class="lbl">Quota</span><span id="alt">0</span><small>m</small></div>
+      <div class="bar"><span class="lbl">Vita</span><div class="track"><div id="hpBar" class="fill hp" style="width:100%"></div></div></div>
       <div class="bar"><span class="lbl">Spinta</span><div class="track"><div id="throttleBar" class="fill thr"></div></div></div>
       <div class="bar"><span class="lbl">Fuoco</span><div class="track"><div id="energyBar" class="fill fire"></div></div></div>
       <div class="bar"><span class="lbl">Tempesta</span><div class="track"><div id="stormBar" class="fill storm"></div></div></div>
     </div>
     <div id="score">
       <div><span id="destroyed">0</span> / <span id="total">0</span> edifici distrutti</div>
-      <div class="sub"><span id="burning">0</span> in fiamme</div>
+      <div class="sub"><span id="burning">0</span> in fiamme · <span id="kills" class="kills">0</span> draghi abbattuti</div>
     </div>
+    <div id="enemyBars"></div>
+    <div id="crosshair" class="hidden"></div>
+    <div id="groundHint" class="hidden"></div>
+    <div id="hurt"></div>
     <canvas id="minimap" width="200" height="200"></canvas>
     <div id="banner"></div>
     <div id="msgs"></div>
@@ -52,6 +57,7 @@
           <tr><td><kbd>Q</kbd> o <kbd>Z</kbd></td><td>Rallenta</td></tr>
           <tr><td><kbd>Spazio</kbd> / clic sinistro</td><td>Sputa fuoco (tieni premuto)</td></tr>
           <tr><td>Destro + trascina, rotella</td><td>Ruota / avvicina la camera</td></tr>
+          <tr><td><kbd>L</kbd></td><td>Atterra / decolla</td></tr>
           <tr><td><kbd>I</kbd></td><td>Inverti asse verticale</td></tr>
         </table>
       </div>
@@ -65,6 +71,7 @@
           <tr><td><kbd>X</kbd> · <kbd>Y</kbd></td><td>Palla di fuoco · Giro della morte</td></tr>
           <tr><td><kbd>LB</kbd> <kbd>RB</kbd></td><td>Piroetta</td></tr>
           <tr><td><kbd>LT</kbd> + <kbd>RT</kbd></td><td>Tempesta di fuoco</td></tr>
+          <tr><td>Premi levetta sinistra</td><td>Atterra / decolla</td></tr>
         </table>
       </div>
     </div>
@@ -75,6 +82,14 @@
       <tr><td><kbd>A</kbd> <kbd>A</kbd> / <kbd>D</kbd> <kbd>D</kbd> (doppio tocco)</td><td>🌀 Piroetta a sinistra / destra</td></tr>
       <tr><td><kbd>W</kbd> <kbd>W</kbd> (doppio tocco)</td><td>➰ Giro della morte</td></tr>
     </table>
+    <h3>A terra</h3>
+    <table>
+      <tr><td><kbd>L</kbd> vicino al suolo</td><td>Atterra (non sull'acqua); <kbd>L</kbd> di nuovo per decollare</td></tr>
+      <tr><td><kbd>W</kbd> <kbd>S</kbd> · <kbd>A</kbd> <kbd>D</kbd></td><td>Cammina avanti/indietro · gira (<kbd>Shift</kbd> corre)</td></tr>
+      <tr><td>Mouse (clicca per catturarlo), <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd>, levetta destra</td><td>Muovi la testa e mira: il fuoco va esattamente nel mirino (<kbd>Esc</kbd> libera il mouse)</td></tr>
+    </table>
+    <h3>Draghi guardiani</h3>
+    <p class="note">Ogni drago rivale protegge un villaggio (il drago d'Ombra difende il castello) e gli vola intorno. È neutrale (barra dorata, giallo sulla minimappa) finché non attacchi lui o incendi il suo villaggio: allora diventa ostile (rosso) e ti insegue con fiamme e palle di fuoco viola. Se ti allontani dal suo territorio, dopo un po' si calma. Colpiscilo col soffio, con le palle di fuoco o con la tempesta finché la vita non si svuota: precipiterà in fiamme. Con un drago davanti il mirino si accende e il collo si piega verso di lui. La tua vita si rigenera se resti qualche secondo senza essere colpito.</p>
     <p class="note">Vola basso sul mare: lo spostamento d'aria delle ali increspa e spinge l'acqua. Gli edifici colpiti dal fuoco bruciano e l'incendio si propaga alle case vicine.</p>
     <p class="close">Premi <kbd>H</kbd> per chiudere</p>
   </div>

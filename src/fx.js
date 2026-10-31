@@ -227,15 +227,16 @@ export class FX {
     const fbGeo = new THREE.SphereGeometry(1, 16, 12);
     this.fbMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.5, 1.5, 0.35) });
     this.fbGeo = fbGeo;
+    this.fbEnemyMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.6, 3.2) });
 
-    this.fire.onCollide = (x, y, z) => this.particleHit(x, y, z);
+    this.fire.onCollide = (x, y, z, i) => this.particleHit(x, y, z, this.fire.flags[i] === 2 ? 'enemy' : 'player');
     this.stats = { fireballs: 0 };
   }
 
   setScale(s) { for (const ps of this.systems) ps.setScale(s); }
 
   // Collisione delle fiamme del soffio con terreno, acqua ed edifici
-  particleHit(x, y, z) {
+  particleHit(x, y, z, owner) {
     const w = this.world;
     const g = w.groundHeight(x, z);
     if (y < g + 0.6 || y < 0.4) {
@@ -254,19 +255,20 @@ export class FX {
     }
     const b = w.buildingAt(x, y, z);
     if (b) {
-      if (w.ignite(b)) this.onIgnite?.(b);
+      if (w.ignite(b)) this.onIgnite?.(b, owner);
       return true;
     }
     return false;
   }
 
-  emitBreath(dt, mouth, dir, dragonVel, intensity = 1) {
-    this.breathAcc += dt * 560 * intensity;
+  // flag delle particelle: 1 = fuoco del giocatore, 2 = fuoco di un drago nemico
+  emitBreath(dt, mouth, dir, dragonVel, intensity = 1, acc = this, flag = 1) {
+    acc.breathAcc = (acc.breathAcc || 0) + dt * 560 * intensity;
     const up = Math.abs(dir.y) < 0.95 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
     const right = new THREE.Vector3().crossVectors(dir, up).normalize();
     const up2 = new THREE.Vector3().crossVectors(right, dir).normalize();
-    while (this.breathAcc >= 1) {
-      this.breathAcc -= 1;
+    while (acc.breathAcc >= 1) {
+      acc.breathAcc -= 1;
       const a = Math.random() * Math.PI * 2, s = Math.sqrt(Math.random()) * 0.11;
       const dx = dir.x + (right.x * Math.cos(a) + up2.x * Math.sin(a)) * s;
       const dy = dir.y + (right.y * Math.cos(a) + up2.y * Math.sin(a)) * s;
@@ -275,21 +277,22 @@ export class FX {
       const j = Math.random() * 2.5;
       this.fire.spawn(mouth.x + dir.x * j, mouth.y + dir.y * j, mouth.z + dir.z * j,
         dx * sp + dragonVel.x, dy * sp + dragonVel.y, dz * sp + dragonVel.z,
-        0.75 + Math.random() * 0.35, 0.8 + Math.random() * 0.8, 7 + Math.random() * 5, 0, 1, 0.8);
+        0.75 + Math.random() * 0.35, 0.8 + Math.random() * 0.8, 7 + Math.random() * 5, 0, flag, 0.8);
       if (Math.random() < 0.05) {
         this.embers.spawn(mouth.x, mouth.y, mouth.z, dx * sp * 0.8 + dragonVel.x, dy * sp * 0.8 + dragonVel.y, dz * sp * 0.8 + dragonVel.z, 1.2, 0.5, 0.3, 0);
       }
     }
-    this.breathLight = 1;
+    if (acc === this) this.breathLight = 1;
   }
 
-  launchFireball(pos, vel, size = 2.6) {
-    const mesh = new THREE.Mesh(this.fbGeo, this.fbMat);
+  // owner: 'player' o 'enemy' (decide chi viene danneggiato)
+  launchFireball(pos, vel, size = 2.6, owner = 'player') {
+    const mesh = new THREE.Mesh(this.fbGeo, owner === 'enemy' ? this.fbEnemyMat : this.fbMat);
     mesh.scale.setScalar(size);
     mesh.position.copy(pos);
     this.scene.add(mesh);
-    this.fireballs.push({ mesh, pos: mesh.position, vel: vel.clone(), t: 0, size, acc: 0 });
-    this.audio?.whoosh?.(0.8);
+    this.fireballs.push({ mesh, pos: mesh.position, vel: vel.clone(), t: 0, size, acc: 0, owner });
+    if (owner === 'player') this.audio?.whoosh?.(0.8);
   }
 
   startFirestorm(dragon) {
@@ -298,7 +301,7 @@ export class FX {
     this.shake = Math.max(this.shake, 0.6);
   }
 
-  explode(pos, size = 1) {
+  explode(pos, size = 1, owner = 'player') {
     const w = this.world;
     const g = w.groundHeight(pos.x, pos.z);
     const onWater = g < 0.5 && pos.y < 3;
@@ -325,15 +328,15 @@ export class FX {
         this.spray.spawn(pos.x + Math.cos(a) * r, 0.5, pos.z + Math.sin(a) * r,
           Math.cos(a) * sp * 0.5, 15 + Math.random() * 40, Math.sin(a) * sp * 0.5, 1.5 + Math.random() * 1.5, 2.5, 9, 1);
       }
-    } else {
+    } else if (pos.y - g < R) { // le esplosioni in volo non incendiano il suolo
       w.buildingsNear(pos.x, pos.z, R, (b) => {
         const d = Math.hypot(b.x - pos.x, b.z - pos.z);
-        if (d < R + b.size * 0.5 && w.ignite(b, d * 0.012)) this.onIgnite?.(b);
+        if (d < R + b.size * 0.5 && w.ignite(b, d * 0.012)) this.onIgnite?.(b, owner);
       });
       w.charTrees(pos.x, pos.z, R * 0.85, 40);
     }
     this.flashes.push({ pos: pos.clone().setY(pos.y + 6), t: 0 });
-    this.onExplode?.(pos, size);
+    this.onExplode?.(pos, size, owner);
   }
 
   update(dt, camPos, mouthPos) {
@@ -353,9 +356,9 @@ export class FX {
         if (Math.random() < 0.15) this.smoke.spawn(f.pos.x, f.pos.y, f.pos.z, 0, 2, 0, 2.5, f.size * 2, f.size * 7, 0);
       }
       const g = this.world.groundHeight(f.pos.x, f.pos.z);
-      const hit = f.pos.y < Math.max(g, 0.3) + f.size * 0.5 || this.world.buildingAt(f.pos.x, f.pos.y, f.pos.z) || f.t > 7;
+      const hit = f.pos.y < Math.max(g, 0.3) + f.size * 0.5 || this.world.buildingAt(f.pos.x, f.pos.y, f.pos.z) || f.t > 7 || this.hitTest?.(f);
       if (hit) {
-        this.explode(f.pos, f.size / 2.6);
+        this.explode(f.pos, f.size / 2.6, f.owner);
         this.scene.remove(f.mesh);
         this.fireballs.splice(i, 1);
       }
