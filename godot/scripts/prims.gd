@@ -11,6 +11,7 @@ static func get_prim(kind: String) -> Dictionary:
 		match kind:
 			"box": _cache[kind] = _box()
 			"cyl": _cache[kind] = _cylinder(14)
+			"prism": _cache[kind] = _prism(16)
 			"cone": _cache[kind] = _cone(14, 1.0)
 			"cone8": _cache[kind] = _cone(8, 1.0)
 			"pyr": _cache[kind] = _pyramid()
@@ -72,6 +73,21 @@ static func _cylinder(seg: int) -> Dictionary:
 		var p1 := _ring(seg, i + 1)
 		_tri_smooth(d, p0, p1, p1 + up, p0, p1, p1, c)
 		_tri_smooth(d, p0, p1 + up, p0 + up, p0, p1, p0, c)
+		_tri(d, up, p0 + up, p1 + up, c)
+		_tri(d, Vector3.ZERO, p1, p0, c)
+	return d
+
+
+# Cilindro a facce piatte: ogni faccia riceve la texture dritta (torri in pietra)
+static func _prism(seg: int) -> Dictionary:
+	var d := _new()
+	var c := Vector3(0, 0.5, 0)
+	var up := Vector3(0, 1, 0)
+	for i in seg:
+		var p0 := _ring(seg, i)
+		var p1 := _ring(seg, i + 1)
+		_tri(d, p0, p1, p1 + up, c)
+		_tri(d, p0, p1 + up, p0 + up, c)
 		_tri(d, up, p0 + up, p1 + up, c)
 		_tri(d, Vector3.ZERO, p1, p0, c)
 	return d

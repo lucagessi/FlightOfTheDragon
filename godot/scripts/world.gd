@@ -134,6 +134,7 @@ var burning: Array[Building] = []
 var tree_fires: Array = []
 var stats := {"total": 0, "burning": 0, "destroyed": 0}
 var villages: Array = []
+var fortress: Fortress
 var trees: Array = []
 var tree_grid := {}
 var time := 0.0
@@ -186,6 +187,10 @@ func generate() -> void:
 			_build_castle(v)
 		else:
 			_build_village(v)
+	fortress = Fortress.new()
+	fortress.name = "Fortress"
+	add_child(fortress)
+	fortress.build(self)
 	stats.total = buildings.size() - 1
 	_build_trees()
 	smooth_ground = true
@@ -694,7 +699,7 @@ func _add_tower(B: GeoBuilder, x: float, z: float, village, r := 3.6, h := 16.0,
 	var gmin := minf(minf(g, ground_height(x + r, z)), minf(minf(ground_height(x - r, z), ground_height(x, z + r)), ground_height(x, z - r)))
 	var b := _new_building([Vector3(x, z, r + 0.5)], g, g + h + r * 2, village)
 	var P := PartMaker.new(B, _frame(x, z, 0), b.id, g, rng)
-	P.p("cyl", 0, gmin - 2, 0, r, g + h - gmin + 2, r, 0, COLORS.stone)
+	P.p("prism", 0, gmin - 2, 0, r, g + h - gmin + 2, r, 0, COLORS.stone)
 	P.p("cyl", 0, g + h - 0.6, 0, r + 0.6, 0.8, r + 0.6, 0, COLORS.stone_dark)
 	P.p("cone", 0, g + h + 0.2, 0, r + 1.2, r * 2.2, r + 1.2, 0, roof_col)
 	for a in 4:
@@ -908,6 +913,14 @@ func _build_trees() -> void:
 		if not tree_grid.has(key):
 			tree_grid[key] = []
 		tree_grid[key].append(tree)
+	# niente alberi dentro mura, torri e mastio della fortezza (filtrati dopo, per non cambiare il resto del bosco)
+	trees = trees.filter(func(t): return not fortress.covers(t.x, t.z))
+	tree_grid.clear()
+	for t in trees:
+		var key := floori(t.x / 40) * 100003 + floori(t.z / 40)
+		if not tree_grid.has(key):
+			tree_grid[key] = []
+		tree_grid[key].append(t)
 	# un blocco per tipo e zona, con il modello dettagliato vicino e quello semplificato lontano
 	var cells := {}
 	for t in trees:

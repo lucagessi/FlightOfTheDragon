@@ -11,7 +11,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--guardian` mette di fronte al guardiano più vicino già ostile, `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--guardian` mette di fronte al guardiano più vicino già ostile, `--fortress` davanti alla fortezza già risvegliata (`--fortress=<angolo>` la inquadra tutta da quella direzione, `--fortress=post` da vicino sulle armi del mastio), `--breathe` tiene premuto il fuoco,
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -26,6 +26,25 @@ node godot/tools/export_world.mjs
 
 Villaggi, edifici e alberi sono generati in GDScript con lo stesso generatore casuale (`mulberry32`, seme 2024);
 i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore separato per edificio.
+
+## La fortezza di Monte Nero
+
+Esiste solo nella versione Godot. Sulla vetta più alta lontana dai villaggi, quattro anelli di mura a gradoni
+seguono le curve di livello dalla costa alla cima, con torri, bastioni, caserme e il mastio con la guglia arcana.
+Dorme finché non la attacchi (soffio, palle di fuoco o un incendio appiccato alle sue mura), poi suona il corno
+e tutte le postazioni a tiro sparano con tiro balistico e anticipo sul bersaglio:
+
+| Postazione | Gittata | Colpo |
+| --- | --- | --- |
+| cannone | 900 m | palla di ferro che esplode |
+| trabucco | 1150 m | macigno infuocato a parabola alta |
+| balestra su ruote | 760 m | dardo veloce e preciso |
+| arcieri | 420 m | raffiche di frecce incendiarie |
+| fuoco greco | 140 m | getto di fiamme dai sifoni sulle mura basse |
+| torre arcana | 1100 m | sfere magiche che inseguono il drago |
+
+Ogni postazione si distrugge col fuoco o incendiando la sua torre; quando cadono tutte, cade la fortezza.
+Ha un generatore casuale proprio (seme 7331), così il resto del mondo resta identico alla versione Three.js.
 
 ## Texture
 
@@ -60,6 +79,7 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
 | `scripts/audio.gd` | audio procedurale: vento, ali, fiamme, mare, incendi, esplosioni, ruggiti |
+| `scripts/fortress.gd` | fortezza di Monte Nero: mura sui pendii, mastio, armi, proiettili e difesa |
 | `scripts/enemies.gd` | draghi guardiani: ronda, inseguimento, attacchi, vita e abbattimento |
 | `scripts/fx.gd`, `scripts/particles.gd` | particelle, soffio, palle di fuoco, tempesta, esplosioni, luci |
 | `scripts/water.gd` | mare che segue la camera |

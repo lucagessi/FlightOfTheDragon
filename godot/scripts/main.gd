@@ -36,6 +36,7 @@ var cam_up := Vector3.UP
 var cam_fov := 62.0
 var cam_dist := 34.0
 var current_village = null
+var was_in_fortress := false
 var announced := {}
 var screenshot_path := ""
 var screenshot_t := -1.0
@@ -86,6 +87,8 @@ func _ready() -> void:
 	# le palle di fuoco esplodono quando raggiungono un drago avversario
 	fx.hit_test = _hit_test
 	fx.on_ignite = _on_ignite
+	world.fortress.setup(fx, hud, audio)
+	world.fortress.on_player_damage = _damage_player
 	# --screenshot=<file> [--shot-time=<s>]: salva un'immagine e chiude (per le verifiche)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--screenshot="):
@@ -105,6 +108,8 @@ func _ready() -> void:
 			_test_land.call_deferred()
 		elif arg == "--peak":
 			_test_peak.call_deferred()
+		elif arg.begins_with("--fortress"):
+			_test_fortress.call_deferred(arg.split("=")[1] if "=" in arg else "")
 		elif arg == "--guardian":
 			_test_guardian.call_deferred()
 		elif arg == "--house":
@@ -250,6 +255,29 @@ func _test_guardian() -> void:
 	enemies.provoke(e, "attack")
 
 
+# Per le verifiche: davanti alla fortezza, già risvegliata (view: camera ferma che la inquadra tutta)
+func _test_fortress(view := "") -> void:
+	_start_game()
+	var f := world.fortress
+	var a := float(view) if view.is_valid_float() else 2.4
+	dragon.position = f.center + Vector3(cos(a) * 750, -f.center.y * 0.2, sin(a) * 750)
+	dragon.yaw = atan2(f.center.x - dragon.position.x, f.center.z - dragon.position.z)
+	dragon.throttle = 0.1
+	if view == "post":
+		# da vicino sulle armi del mastio
+		test_closeup = true
+		var w: Dictionary = f.weapons[0]
+		closeup_target = w.pos + Vector3(0, 2, 0)
+		closeup_pos = w.pos + (w.pos - f.center).normalized() * 28 + Vector3(0, 14, 0)
+		f.awaken("attack")
+	elif view != "":
+		test_closeup = true
+		closeup_target = f.center + Vector3(0, -f.center.y * 0.4, 0)
+		closeup_pos = f.center + Vector3(cos(a) * 950, 40, sin(a) * 950)
+	else:
+		f.awaken("attack")
+
+
 func current_village_of(p: Vector3):
 	var best = null
 	for v in world.villages:
@@ -272,6 +300,7 @@ func _on_explode(pos: Vector3, size: float, owner: String) -> void:
 	fx.shake = maxf(fx.shake, clampf(1.2 - d / 400, 0, 1) * size)
 	if owner == "player":
 		enemies.splash(pos, 45 * size, 45)
+		world.fortress.splash(pos, 45 * size, 45)
 	elif owner == "enemy" and player_alive:
 		var pd := pos.distance_to(dragon.position)
 		if pd < 30:
@@ -289,6 +318,8 @@ func _hit_test(f: Dictionary) -> bool:
 func _on_ignite(b: World.Building, owner: String) -> void:
 	if owner == "player":
 		enemies.village_attacked(b.village)
+		if world.fortress.owns(b):
+			world.fortress.awaken("fire")
 
 
 func _on_hostile(e: Dictionary, reason: String) -> void:
@@ -396,9 +427,13 @@ func _handle_actions(actions: Array) -> void:
 					var vel := dir * 150 + dragon.velocity
 					# con un drago nemico nel mirino, la palla di fuoco punta dove si troverà
 					var tgt = enemies.target(dragon, 700, 0.45) if dragon.mode == "air" else null
+					var post = world.fortress.target(dragon, 700, 0.35) if dragon.mode == "air" and tgt == null else null
 					if tgt != null:
 						var td: Dragon = tgt.dragon
 						dir = (td.position + td.velocity * (td.position.distance_to(m[0]) / 170) - m[0]).normalized()
+						vel = dir * 170 + dragon.velocity * 0.2
+					elif post != null:
+						dir = (post.pos + Vector3(0, 2, 0) - m[0]).normalized()
 						vel = dir * 170 + dragon.velocity * 0.2
 					fx.launch_fireball(m[0] + dir * 3, vel, 3)
 					dragon.roaring = 0.3
@@ -455,8 +490,9 @@ func _process(delta: float) -> void:
 		c.fire = true
 	# mira assistita sul drago nemico più vicino davanti (solo in volo)
 	var aim = enemies.target(dragon) if started and player_alive and not grounded else null
+	var post = world.fortress.target(dragon) if started and player_alive and not grounded and aim == null else null
 	if not grounded:
-		dragon.aim_target = aim.dragon.position if aim != null else null
+		dragon.aim_target = aim.dragon.position if aim != null else (post.pos + Vector3(0, 2, 0) if post != null else null)
 
 	# soffio di fuoco
 	var breathing: bool = started and player_alive and c.fire and energy > 1
@@ -480,6 +516,7 @@ func _process(delta: float) -> void:
 		for e in enemies.list:
 			if not e.dragon.dying and Enemies.in_breath(m[0], dir, e.dragon.position, 8 * e.type.scale / 0.5):
 				enemies.damage(e, 34 * dt)
+		world.fortress.breath_hit(m[0], dir, dt)
 	else:
 		energy = minf(100, energy + dt * (0.0 if c.fire else 14.0))
 	storm_cd = maxf(0, storm_cd - dt)
@@ -523,7 +560,9 @@ func _process(delta: float) -> void:
 			for e in enemies.list:
 				if e.dragon.position.distance_to(dragon.position) < 55:
 					enemies.damage(e, 45 * dt)
+			world.fortress.splash(dragon.position, 55, 45 * dt)
 		var ev2 := enemies.update_enemies(dt, dragon, player_alive)
+		world.fortress.update_fortress(dt, dragon, player_alive, camera.position)
 		if ev2.player_damage > 0:
 			_damage_player(ev2.player_damage)
 		invuln = maxf(0, invuln - dt)
@@ -565,9 +604,10 @@ func _process(delta: float) -> void:
 func _hud_state() -> Dictionary:
 	var aim = dragon.aim_target if dragon.mode == "air" and dragon.aim_ok and player_alive else null
 	var tgt = enemies.target(dragon) if aim != null else null
+	var hostile: bool = tgt.hostile if tgt != null else world.fortress.awake
 	return {"dragon": dragon, "camera": camera, "hp": player_hp, "energy": energy, "storm_cd": storm_cd,
 		"hurt": hurt, "time": time, "paused": paused, "locked": input.pointer_locked(),
-		"aim": aim, "aim_hostile": tgt != null and tgt.hostile, "kills": enemies.kills, "enemies": enemies.list}
+		"aim": aim, "aim_hostile": aim != null and hostile, "kills": enemies.kills, "enemies": enemies.list, "fortress": world.fortress}
 
 
 func _update_villages() -> void:
@@ -575,6 +615,11 @@ func _update_villages() -> void:
 	for v in world.villages:
 		if Vector2(v.x - dragon.position.x, v.z - dragon.position.z).length() < v.r + 160:
 			near = v
+	var fort := world.fortress
+	var in_fort := Vector2(dragon.position.x - fort.center.x, dragon.position.z - fort.center.z).length() < fort.radius
+	if in_fort and not was_in_fortress:
+		hud.show_banner(Fortress.TITLE, "caduta" if fort.fallen else ("all'attacco" if fort.awake else "dormiente · %d postazioni" % fort.alive_count()))
+	was_in_fortress = in_fort
 	if near != null and near != current_village:
 		var g = enemies.guardian_of(near)
 		var sub: String = "Fortezza" if near.kind == "castle" else "Villaggio"

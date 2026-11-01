@@ -21,6 +21,11 @@ Ogni drago rivale protegge un villaggio: è neutrale (barra dorata) finché non 
 attacchi o incendi il suo villaggio, poi diventa ostile (rosso) e ti insegue.
 Se ti allontani dal suo territorio dopo un po' si calma.
 
+LA FORTEZZA DI MONTE NERO
+Sulla vetta più alta: dorme finché non la attacchi, poi cannoni, trabucchi,
+balestre, arcieri, fuoco greco e la torre arcana ti bersagliano.
+Distruggi le postazioni col fuoco: quando cadono tutte, cade la fortezza.
+
 COMBINAZIONI
 Spazio Spazio (doppio tocco)   palla di fuoco
 ↓ ↑ + Spazio   tempesta di fuoco
@@ -48,6 +53,10 @@ var crosshair := Label.new()
 var ground_hint := Label.new()
 var hurt := ColorRect.new()
 var enemy_layer := Control.new()
+var boss := VBoxContainer.new()
+var boss_title: Label
+var boss_sub: Label
+var boss_fill := ColorRect.new()
 var help := PanelContainer.new()
 var pause_lbl := Label.new()
 var start := Control.new()
@@ -127,6 +136,27 @@ func setup(w: World) -> void:
 
 	# minimappa in basso a destra
 	_build_minimap()
+
+	# barra della fortezza in basso al centro
+	boss.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	boss.position = Vector2(-240, -205)
+	boss.custom_minimum_size = Vector2(480, 0)
+	boss.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_title = _label("", 20, Color(1, 0.85, 0.7))
+	boss_sub = _label("", 14, Color(1, 1, 1, 0.8))
+	var track := ColorRect.new()
+	track.color = Color(0, 0, 0, 0.55)
+	track.custom_minimum_size = Vector2(480, 10)
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_fill.size = Vector2(480, 10)
+	boss_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(boss_fill)
+	for c in [boss_title, track, boss_sub]:
+		if c is Label:
+			c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		boss.add_child(c)
+	boss.visible = false
+	root.add_child(boss)
 
 	msgs.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	msgs.position = Vector2(-300, 190)
@@ -261,6 +291,14 @@ func _draw_minimap() -> void:
 				minimap.draw_circle(m[1], 3.5, m[2])
 			"fire":
 				minimap.draw_rect(Rect2(m[1] - Vector2(1, 1), Vector2(2, 2)), m[2])
+			"post":
+				minimap.draw_rect(Rect2(m[1] - Vector2(1, 1), Vector2(2, 2)), m[2])
+			"fortress":
+				var p: Vector2 = m[1]
+				var pts := PackedVector2Array([p + Vector2(0, -7), p + Vector2(6, 4), p + Vector2(-6, 4)])
+				minimap.draw_colored_polygon(pts, m[2])
+				pts.append(pts[0])
+				minimap.draw_polyline(pts, Color.BLACK, 1.5)
 			"enemy":
 				var p: Vector2 = m[1]
 				var pts := PackedVector2Array([p + Vector2(0, -5), p + Vector2(4, 3), p + Vector2(-4, 3)])
@@ -302,6 +340,17 @@ func add_enemy_bar(title: String, sub: String) -> Dictionary:
 	box.visible = false
 	enemy_layer.add_child(box)
 	return {"box": box, "name": name_lbl, "fill": fill, "hostile": null}
+
+
+# Barra della fortezza: postazioni ancora in piedi, rossa quando è all'attacco
+func set_boss(show: bool, title := "", sub := "", frac := 1.0, hostile := false) -> void:
+	boss.visible = show
+	if not show:
+		return
+	boss_title.text = title
+	boss_sub.text = sub
+	boss_fill.size.x = 480 * clampf(frac, 0, 1)
+	boss_fill.color = Color(0.9, 0.2, 0.1) if hostile else Color(0.75, 0.7, 0.62)
 
 
 # dorata se il drago è neutrale, rossa se ostile
@@ -388,6 +437,13 @@ func update_hud(dt: float, s: Dictionary) -> void:
 	for b in world.burning:
 		if b.fire >= 0.2:
 			minimap_markers.append(["fire", _to_map(b.x, b.z), Color(1, 0.3 + randf() * 0.25, 0.08, 0.9)])
+	var fort: Fortress = s.fortress
+	if fort != null and fort.built:
+		var post := Color(1, 0.25, 0.15) if fort.awake else Color(0.85, 0.82, 0.75)
+		for w in fort.weapons:
+			if w.alive:
+				minimap_markers.append(["post", _to_map(w.pos.x, w.pos.z), post])
+		minimap_markers.append(["fortress", _to_map(fort.center.x, fort.center.z), Color("#333") if fort.fallen else Color("#7a1a14")])
 	for e in s.enemies:
 		var c := Color("#555") if e.dragon.dying else (Color("#ff2a2a") if e.hostile else Color("#ffc23a"))
 		minimap_markers.append(["enemy", _to_map(e.dragon.position.x, e.dragon.position.z), c])

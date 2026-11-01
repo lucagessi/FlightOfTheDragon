@@ -210,6 +210,27 @@ func _render_all() -> void:
 		e[i] += sin(ph * TAU) * _env(t, 0.8, 0.01, 0.9)
 	r.explosion.append(_pcm(e))
 	r.roar.append(_pcm(_roar(white)))
+	# colpo di cannone: boato secco e corto con un tonfo profondo
+	var c := _buf(1.3)
+	_burst(c, brown, LOW, 900, 90, 1.2, 0.005, 1.2)
+	_burst(c, white, LOW, 3000, 400, 0.5, 0.002, 0.3)
+	ph = 0.0
+	for i in int(0.71 * RATE):
+		var t := float(i) / RATE
+		ph += 55 * pow(32.0 / 55, t / 0.7) / RATE
+		c[i] += sin(ph * TAU) * _env(t, 0.9, 0.005, 0.7)
+	r.cannon = [_pcm(c)]
+	# scatto della corda di balestre e trabucchi
+	var tw := _buf(0.4)
+	_burst(tw, white, BAND, 700, 250, 0.5, 0.002, 0.3, 4)
+	ph = 0.0
+	for i in int(0.31 * RATE):
+		var t := float(i) / RATE
+		ph += lerpf(120, 70, t / 0.3) / RATE
+		tw[i] += (2 * fmod(ph, 1.0) - 1) * _env(t, 0.35, 0.003, 0.3)
+	r.twang = [_pcm(tw)]
+	r.horn = [_pcm(_horn(white))]
+	r.magic = [_pcm(_magic())]
 	rendered = r
 
 
@@ -231,6 +252,44 @@ static func _roar(white: PackedFloat32Array) -> PackedFloat32Array:
 			f.set_freq(lerpf(400, 1300, t / 0.4) if t < 0.4 else lerpf(1300, 300, minf((t - 0.4) / 1.6, 1)))
 		out[i] = f.process(s) * _env(t, 0.55, 0.15, 1.9)
 	_burst(out, white, BAND, 900, 400, 0.25, 0.1, 1.8, 2)
+	return out
+
+
+# Corno di guerra: tre dente di sega in quinta con vibrato lento, filtro chiuso e un po' di fiato
+static func _horn(white: PackedFloat32Array) -> PackedFloat32Array:
+	var out := _buf(2.6)
+	var f := Biquad.new(LOW, 1.2)
+	f.set_freq(650)
+	var voices := [[98.0, 1.0], [147.0, 0.7], [196.0, 0.4]]
+	var phase := [0.0, 0.0, 0.0]
+	for i in out.size():
+		var t := float(i) / RATE
+		var bend := lerpf(0.94, 1.0, minf(t / 0.3, 1))
+		var vib := sin(TAU * 5 * t) * 1.2
+		var s := 0.0
+		for j in 3:
+			phase[j] = fmod(phase[j] + (voices[j][0] * bend + vib) / RATE, 1.0)
+			s += (2 * phase[j] - 1) * voices[j][1]
+		var e := minf(t / 0.35, 1) * (1.0 if t < 1.9 else pow(0.002, (t - 1.9) / 0.7))
+		out[i] = f.process(s) * 0.5 * e
+	_burst(out, white, BAND, 420, 380, 0.05, 0.3, 2.2, 1)
+	return out
+
+
+# Sfera arcana: due sinusoidi in quinta che scendono, con tremolo e un luccichio acuto
+static func _magic() -> PackedFloat32Array:
+	var out := _buf(1.0)
+	var ph := [0.0, 0.0, 0.0]
+	var fr := [523.0, 784.0, 1568.0]
+	var amp := [1.0, 0.7, 0.15]
+	for i in out.size():
+		var t := float(i) / RATE
+		var glide := lerpf(1.0, 0.85, t)
+		var s := 0.0
+		for j in 3:
+			ph[j] = fmod(ph[j] + fr[j] * glide / RATE, 1.0)
+			s += sin(ph[j] * TAU) * amp[j]
+		out[i] = s * (0.7 + 0.3 * sin(TAU * 9 * t)) * _env(t, 0.35, 0.02, 0.95)
 	return out
 
 
@@ -341,6 +400,11 @@ func explosion(dist: float) -> void:
 
 func roar(vol := 1.0) -> void:
 	_play("roar", vol, 0.95 + randf() * 0.1)
+
+
+# Suono di un'arma della fortezza (cannon, twang, horn, magic, whoosh), attenuato con la distanza
+func shot(key: String, dist: float, vol := 1.0, pitch := 1.0) -> void:
+	_play(key, vol / (1 + dist / 300), pitch * (0.95 + randf() * 0.1))
 
 
 func crackle() -> void:

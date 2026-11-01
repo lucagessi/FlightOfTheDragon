@@ -183,7 +183,8 @@ func _spawn_blast(pos: Vector3, radius: float, ground_y: float, on_water: bool) 
 	b.wave.material_override.albedo_color = Color(0.6, 0.75, 0.9) if on_water else Color(1, 0.55, 0.2)
 
 
-func explode(pos: Vector3, size := 1.0, owner := "player") -> void:
+# burn = false: l'esplosione non incendia edifici e alberi (colpi della fortezza sulle sue stesse mura)
+func explode(pos: Vector3, size := 1.0, owner := "player", burn := true) -> void:
 	var g := world.ground_height(pos.x, pos.z)
 	var on_water := g < 0.5 and pos.y < 3
 	var R := 36 * size
@@ -205,11 +206,12 @@ func explode(pos: Vector3, size := 1.0, owner := "player") -> void:
 			spray.spawn(Vector3(pos.x + cos(a) * r, 0.5, pos.z + sin(a) * r),
 				Vector3(cos(a) * sp * 0.5, 15 + randf() * 40, sin(a) * sp * 0.5), 1.5 + randf() * 1.5, 2.5, 9, 1)
 	elif pos.y - g < R: # le esplosioni in volo non incendiano il suolo
-		for b in world.buildings_near(pos.x, pos.z, R):
-			var d := Vector2(b.x - pos.x, b.z - pos.z).length()
-			if d < R + b.size * 0.5:
-				_ignite(b, owner, d * 0.012)
-		world.char_trees(pos.x, pos.z, R * 0.85, 40)
+		if burn:
+			for b in world.buildings_near(pos.x, pos.z, R):
+				var d := Vector2(b.x - pos.x, b.z - pos.z).length()
+				if d < R + b.size * 0.5:
+					_ignite(b, owner, d * 0.012)
+			world.char_trees(pos.x, pos.z, R * 0.85, 40)
 		# colonna di fumo
 		for i in int(18 * size):
 			smoke.spawn(pos + Vector3((randf() - 0.5) * 8, 2, (randf() - 0.5) * 8),
