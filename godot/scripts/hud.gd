@@ -15,6 +15,11 @@ A / B   accelera / rallenta     RT   fuoco     X   palla di fuoco
 Y   giro della morte     LB RB   piroetta     LT + RT   tempesta di fuoco
 Premi la levetta sinistra   atterra / decolla
 
+DRAGHI GUARDIANI
+Ogni drago rivale protegge un villaggio: è neutrale (barra dorata) finché non lo
+attacchi o incendi il suo villaggio, poi diventa ostile (rosso) e ti insegue.
+Se ti allontani dal suo territorio dopo un po' si calma.
+
 COMBINAZIONI
 Spazio Spazio (doppio tocco)   palla di fuoco
 ↓ ↑ + Spazio   tempesta di fuoco
@@ -41,6 +46,7 @@ var warn := Label.new()
 var crosshair := Label.new()
 var ground_hint := Label.new()
 var hurt := ColorRect.new()
+var enemy_layer := Control.new()
 var help := PanelContainer.new()
 var pause_lbl := Label.new()
 var start := Control.new()
@@ -70,6 +76,11 @@ func setup(w: World) -> void:
 	hurt.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hurt)
+
+	# barre della vita dei draghi guardiani, sopra di loro
+	enemy_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	enemy_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(enemy_layer)
 
 	# statistiche in alto a sinistra
 	stats_box.position = Vector2(24, 20)
@@ -249,6 +260,12 @@ func _draw_minimap() -> void:
 				minimap.draw_circle(m[1], 3.5, m[2])
 			"fire":
 				minimap.draw_rect(Rect2(m[1] - Vector2(1, 1), Vector2(2, 2)), m[2])
+			"enemy":
+				var p: Vector2 = m[1]
+				var pts := PackedVector2Array([p + Vector2(0, -5), p + Vector2(4, 3), p + Vector2(-4, 3)])
+				minimap.draw_colored_polygon(pts, m[2])
+				pts.append(pts[0])
+				minimap.draw_polyline(pts, Color.BLACK, 1)
 			"player":
 				var p: Vector2 = m[1]
 				var a: float = m[2]
@@ -259,6 +276,40 @@ func _draw_minimap() -> void:
 				pts.append(pts[0])
 				minimap.draw_polyline(pts, Color(0.65, 0, 0), 1.5)
 	minimap.draw_arc(Vector2(100, 100), 100, 0, TAU, 64, Color(0, 0, 0, 0.6), 2)
+
+
+# Barra della vita di un drago guardiano (la posiziona Enemies.update_bars)
+func add_enemy_bar(title: String, sub: String) -> Dictionary:
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(130, 0)
+	box.add_theme_constant_override("separation", 1)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var name_lbl := _label(title, 13)
+	var sub_lbl := _label(sub, 11, Color(1, 1, 1, 0.75))
+	for l in [name_lbl, sub_lbl]:
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(l)
+	var track := ColorRect.new()
+	track.color = Color(0, 0, 0, 0.55)
+	track.custom_minimum_size = Vector2(130, 6)
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fill := ColorRect.new()
+	fill.size = Vector2(130, 6)
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(fill)
+	box.add_child(track)
+	box.visible = false
+	enemy_layer.add_child(box)
+	return {"box": box, "name": name_lbl, "fill": fill, "hostile": null}
+
+
+# dorata se il drago è neutrale, rossa se ostile
+func set_enemy_bar(bar: Dictionary, frac: float, hostile: bool) -> void:
+	bar.fill.size.x = 130 * clampf(frac, 0, 1)
+	if bar.hostile != hostile:
+		bar.hostile = hostile
+		bar.fill.color = Color(0.95, 0.25, 0.12) if hostile else Color(1, 0.8, 0.3)
+		bar.name.add_theme_color_override("font_color", Color(1, 0.54, 0.44) if hostile else Color.WHITE)
 
 
 func show_game() -> void:
@@ -307,19 +358,22 @@ func update_hud(dt: float, s: Dictionary) -> void:
 	bars.storm.color = Color(1, 0.5, 1) if s.storm_cd <= 0 and s.energy >= 50 else Color(0.6, 0.25, 0.8)
 	hurt.color.a = minf(1, s.hurt * 0.9 + (0.25 + 0.15 * sin(s.time * 6) if s.hp < 30 else 0.0)) * 0.35
 	score_lbl.text = "%d / %d edifici distrutti" % [world.stats.destroyed, world.stats.total]
-	score_sub.text = "%d in fiamme" % world.stats.burning
+	score_sub.text = "%d in fiamme · %d draghi abbattuti" % [world.stats.burning, s.kills]
 	warn.visible = d.out_of_bounds
 	pause_lbl.visible = s.paused
-	# a terra il mirino mostra dove andrà il fuoco
+	# a terra il mirino mostra dove andrà il fuoco; in volo segue il drago nemico agganciato
 	var on_ground := d.mode == "ground"
-	crosshair.visible = on_ground
+	var aim = s.aim
+	crosshair.visible = on_ground or aim != null
 	ground_hint.visible = on_ground
 	ground_hint.text = "Mouse: mira · Esc: libera il mouse · L: decolla" if s.locked else "Clic: mira col mouse · Frecce/levetta destra: testa · L: decolla"
-	if on_ground:
+	if crosshair.visible:
 		var cam: Camera3D = s.camera
-		var p: Vector3 = d.get_mouth()[0] + d.aim_dir * 90
+		var p: Vector3 = d.get_mouth()[0] + d.aim_dir * 90 if on_ground else aim
 		if not cam.is_position_behind(p):
 			crosshair.position = cam.unproject_position(p) - crosshair.size / 2
+		var col := Color(1, 0.94, 0.86) if on_ground else (Color(1, 0.35, 0.2) if s.aim_hostile else Color(1, 0.76, 0.23))
+		crosshair.add_theme_color_override("font_color", col)
 	# minimappa
 	minimap_markers.clear()
 	for v in world.villages:
@@ -333,5 +387,8 @@ func update_hud(dt: float, s: Dictionary) -> void:
 	for b in world.burning:
 		if b.fire >= 0.2:
 			minimap_markers.append(["fire", _to_map(b.x, b.z), Color(1, 0.3 + randf() * 0.25, 0.08, 0.9)])
+	for e in s.enemies:
+		var c := Color("#555") if e.dragon.dying else (Color("#ff2a2a") if e.hostile else Color("#ffc23a"))
+		minimap_markers.append(["enemy", _to_map(e.dragon.position.x, e.dragon.position.z), c])
 	minimap_markers.append(["player", _to_map(d.position.x, d.position.z), -d.yaw])
 	minimap.queue_redraw()

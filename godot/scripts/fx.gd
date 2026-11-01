@@ -22,7 +22,10 @@ var breath_acc := 0.0
 var breath_light := 0.0
 var fb_mesh := SphereMesh.new()
 var fb_mat := StandardMaterial3D.new()
-var on_explode := Callable()
+var fb_enemy_mat := StandardMaterial3D.new()
+var on_explode := Callable() # (posizione, dimensione, proprietario)
+var on_ignite := Callable() # (edificio, proprietario): chi ha appiccato il fuoco
+var hit_test := Callable() # (palla di fuoco) -> true se ha colpito un drago avversario
 
 
 func setup(w: World, wt: Water) -> void:
@@ -59,6 +62,12 @@ func setup(w: World, wt: Water) -> void:
 	fb_mat.emission_enabled = true
 	fb_mat.emission = Color(1, 0.55, 0.2)
 	fb_mat.emission_energy_multiplier = 4
+	# palle di fuoco viola dei draghi nemici
+	fb_enemy_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fb_enemy_mat.albedo_color = Color(0.85, 0.35, 1)
+	fb_enemy_mat.emission_enabled = true
+	fb_enemy_mat.emission = Color(0.7, 0.2, 1)
+	fb_enemy_mat.emission_energy_multiplier = 4
 	# lampo sferico e onda d'urto delle esplosioni
 	var flash_mat := StandardMaterial3D.new()
 	flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -85,8 +94,18 @@ func setup(w: World, wt: Water) -> void:
 		blasts.append({"flash": flash, "wave": wave, "t": 99.0, "r": 1.0})
 
 
+static func owner_of(flag: int) -> String:
+	return "enemy" if flag == 2 else "player"
+
+
+func _ignite(b: World.Building, owner: String, delay := 0.0) -> void:
+	if world.ignite(b, delay) and on_ignite.is_valid():
+		on_ignite.call(b, owner)
+
+
 # Collisione delle fiamme del soffio con terreno, acqua ed edifici
-func _particle_hit(pos: Vector3, _flag: int) -> bool:
+# (flag delle particelle: 1 = fuoco del giocatore, 2 = fuoco di un drago nemico)
+func _particle_hit(pos: Vector3, flag: int) -> bool:
 	var g := world.ground_height(pos.x, pos.z)
 	if pos.y < g + 0.6 or pos.y < 0.4:
 		var r := randf()
@@ -103,38 +122,44 @@ func _particle_hit(pos: Vector3, _flag: int) -> bool:
 		return true
 	var b := world.building_at(pos.x, pos.y, pos.z)
 	if b != null:
-		world.ignite(b)
+		_ignite(b, owner_of(flag))
 		return true
 	return false
 
 
-func emit_breath(dt: float, mouth: Vector3, dir: Vector3, dragon_vel: Vector3, intensity := 1.0) -> void:
-	breath_acc += dt * 560 * intensity
+# acc: accumulatore del drago che soffia (null = il giocatore, che accende anche la luce della bocca)
+func emit_breath(dt: float, mouth: Vector3, dir: Vector3, dragon_vel: Vector3, intensity := 1.0, acc = null, flag := 1) -> void:
+	var n: float = (breath_acc if acc == null else acc.get("breath", 0.0)) + dt * 560 * intensity
 	var upv := Vector3.UP if absf(dir.y) < 0.95 else Vector3.RIGHT
 	var right := dir.cross(upv).normalized()
 	var up2 := right.cross(dir).normalized()
-	while breath_acc >= 1:
-		breath_acc -= 1
+	while n >= 1:
+		n -= 1
 		var a := randf() * TAU
 		var s := sqrt(randf()) * 0.11
 		var d := dir + (right * cos(a) + up2 * sin(a)) * s
 		var sp := 95 + randf() * 35
 		var j := randf() * 2.5
-		fire.spawn(mouth + dir * j, d * sp + dragon_vel, 0.75 + randf() * 0.35, 0.8 + randf() * 0.8, 7 + randf() * 5, 0, 1, 0.8)
+		fire.spawn(mouth + dir * j, d * sp + dragon_vel, 0.75 + randf() * 0.35, 0.8 + randf() * 0.8, 7 + randf() * 5, 0, flag, 0.8)
 		if randf() < 0.05:
 			embers.spawn(mouth, d * sp * 0.8 + dragon_vel, 1.2, 0.5, 0.3, 0)
-	breath_light = 1
+	if acc == null:
+		breath_acc = n
+		breath_light = 1
+	else:
+		acc.breath = n
 
 
-func launch_fireball(pos: Vector3, vel: Vector3, size := 2.6) -> void:
+# owner: "player" o "enemy" (decide chi viene danneggiato)
+func launch_fireball(pos: Vector3, vel: Vector3, size := 2.6, owner := "player") -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = fb_mesh
-	mi.material_override = fb_mat
+	mi.material_override = fb_enemy_mat if owner == "enemy" else fb_mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.scale = Vector3.ONE * size
 	mi.position = pos
 	add_child(mi)
-	fireballs.append({"mesh": mi, "vel": vel, "t": 0.0, "size": size, "acc": 0.0})
+	fireballs.append({"mesh": mi, "vel": vel, "t": 0.0, "size": size, "acc": 0.0, "owner": owner})
 
 
 func start_firestorm(dragon: Dragon) -> void:
@@ -154,7 +179,7 @@ func _spawn_blast(pos: Vector3, radius: float, ground_y: float, on_water: bool) 
 	b.wave.material_override.albedo_color = Color(0.6, 0.75, 0.9) if on_water else Color(1, 0.55, 0.2)
 
 
-func explode(pos: Vector3, size := 1.0) -> void:
+func explode(pos: Vector3, size := 1.0, owner := "player") -> void:
 	var g := world.ground_height(pos.x, pos.z)
 	var on_water := g < 0.5 and pos.y < 3
 	var R := 36 * size
@@ -179,7 +204,7 @@ func explode(pos: Vector3, size := 1.0) -> void:
 		for b in world.buildings_near(pos.x, pos.z, R):
 			var d := Vector2(b.x - pos.x, b.z - pos.z).length()
 			if d < R + b.size * 0.5:
-				world.ignite(b, d * 0.012)
+				_ignite(b, owner, d * 0.012)
 		world.char_trees(pos.x, pos.z, R * 0.85, 40)
 		# colonna di fumo
 		for i in int(18 * size):
@@ -188,7 +213,7 @@ func explode(pos: Vector3, size := 1.0) -> void:
 	_spawn_blast(pos, R * 0.45, g, on_water)
 	flashes.append({"pos": pos + Vector3(0, 6, 0), "t": 0.0})
 	if on_explode.is_valid():
-		on_explode.call(pos, size)
+		on_explode.call(pos, size, owner)
 
 
 func _update_blasts(dt: float) -> void:
@@ -240,8 +265,8 @@ func update_fx(dt: float, cam_pos: Vector3, mouth_pos) -> void:
 			if randf() < 0.15:
 				smoke.spawn(pos, Vector3(0, 2, 0), 2.5, size * 2, size * 7, 0)
 		var g := world.ground_height(pos.x, pos.z)
-		if pos.y < maxf(g, 0.3) + size * 0.5 or world.building_at(pos.x, pos.y, pos.z) != null or f.t > 7:
-			explode(pos, size / 2.6)
+		if pos.y < maxf(g, 0.3) + size * 0.5 or world.building_at(pos.x, pos.y, pos.z) != null or f.t > 7 				or (hit_test.is_valid() and hit_test.call(f)):
+			explode(pos, size / 2.6, f.owner)
 			mi.queue_free()
 			fireballs.remove_at(i)
 

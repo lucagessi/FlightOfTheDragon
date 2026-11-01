@@ -11,7 +11,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--guardian` mette di fronte al guardiano più vicino già ostile, `--breathe` tiene premuto il fuoco,
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -59,6 +59,7 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/world.gd` | terreno, villaggi, castello, alberi, incendi |
 | `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
+| `scripts/enemies.gd` | draghi guardiani: ronda, inseguimento, attacchi, vita e abbattimento |
 | `scripts/fx.gd`, `scripts/particles.gd` | particelle, soffio, palle di fuoco, tempesta, esplosioni, luci |
 | `scripts/water.gd` | mare che segue la camera |
 | `scripts/game_input.gd` | tastiera, mouse, joystick e combinazioni |
@@ -68,7 +69,6 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 
 ## Non ancora portato
 
-- draghi guardiani nemici, vita del giocatore e abbattimento
 - nuvole, audio, bagliore del sole sullo schermo
 - bruciature sul terreno e detriti delle esplosioni
 - pipeline di rilascio in CI

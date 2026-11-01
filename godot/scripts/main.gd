@@ -3,11 +3,13 @@ extends Node3D
 
 # sole: elevazione 17°, azimut 210° (come sky.js)
 const SUN_DIR := Vector3(-0.47815, 0.29237, -0.82818)
+const DEAD_CTRL := {"steer": 0.0, "climb": 0.0, "throttle": 0.0, "fire": false, "look_x": 0.0, "look_y": 0.15, "zoom": 0.0, "actions": []}
 
 var world: World
 var water: Water
 var dragon: Dragon
 var fx: FX
+var enemies: Enemies
 var input: GameInput
 var hud: HUD
 var camera := Camera3D.new()
@@ -22,6 +24,11 @@ var fireball_cd := 0.0
 var wake_t := 0.0
 var flap_shake := 0.0
 var player_hp := 100.0
+var player_alive := true
+var dead_t := 0.0
+var last_hit_t := -10.0
+var invuln := 0.0
+var crashed := false
 var hurt := 0.0
 var cam_offset := Vector3(0, 10, -35)
 var cam_up := Vector3.UP
@@ -66,6 +73,15 @@ func _ready() -> void:
 	hud = HUD.new()
 	add_child(hud)
 	hud.setup(world)
+	enemies = Enemies.new()
+	add_child(enemies)
+	enemies.setup(world, fx, hud)
+	enemies.on_kill = func(e): hud.show_msg("%s abbattuto!" % e.type.name)
+	enemies.on_hostile = _on_hostile
+	enemies.on_calm = func(e): hud.show_msg("%s torna a sorvegliare %s" % [e.type.name, e.home.name], "small")
+	# le palle di fuoco esplodono quando raggiungono un drago avversario
+	fx.hit_test = _hit_test
+	fx.on_ignite = _on_ignite
 	# --screenshot=<file> [--shot-time=<s>]: salva un'immagine e chiude (per le verifiche)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--screenshot="):
@@ -85,6 +101,8 @@ func _ready() -> void:
 			_test_land.call_deferred()
 		elif arg == "--peak":
 			_test_peak.call_deferred()
+		elif arg == "--guardian":
+			_test_guardian.call_deferred()
 		elif arg == "--house":
 			_test_house.call_deferred()
 		elif arg.begins_with("--closeup"):
@@ -215,6 +233,18 @@ func _test_house() -> void:
 	closeup_pos = closeup_target + to.rotated(Vector3.UP, 0.5) * 17 + Vector3(0, 3, 0)
 
 
+# Per le verifiche: di fronte al guardiano più vicino, già ostile
+func _test_guardian() -> void:
+	_start_game()
+	enemies.started = true
+	enemies.spawn_initial(dragon)
+	var e = enemies.target(dragon, 1e9, PI)
+	var d: Dragon = e.dragon
+	dragon.position = d.position + Vector3(sin(d.yaw), 0, cos(d.yaw)) * 260
+	dragon.yaw = d.yaw + PI
+	enemies.provoke(e, "attack")
+
+
 func current_village_of(p: Vector3):
 	var best = null
 	for v in world.villages:
@@ -231,9 +261,65 @@ func _test_land() -> void:
 	dragon.land(world)
 
 
-func _on_explode(pos: Vector3, size: float) -> void:
+func _on_explode(pos: Vector3, size: float, owner: String) -> void:
 	var d := pos.distance_to(camera.position)
 	fx.shake = maxf(fx.shake, clampf(1.2 - d / 400, 0, 1) * size)
+	if owner == "player":
+		enemies.splash(pos, 45 * size, 45)
+	elif owner == "enemy" and player_alive:
+		var pd := pos.distance_to(dragon.position)
+		if pd < 30:
+			_damage_player(20 * (1 - pd / 30) + 4)
+
+
+func _hit_test(f: Dictionary) -> bool:
+	var pos: Vector3 = f.mesh.position
+	if f.owner == "player":
+		return enemies.projectile_hit(pos, f.size)
+	return f.owner == "enemy" and player_alive and pos.distance_to(dragon.position) < 8 + f.size
+
+
+# il guardiano di un villaggio si arrabbia solo se è il giocatore ad appiccare il fuoco
+func _on_ignite(b: World.Building, owner: String) -> void:
+	if owner == "player":
+		enemies.village_attacked(b.village)
+
+
+func _on_hostile(e: Dictionary, reason: String) -> void:
+	if reason == "village":
+		hud.show_msg("%s difende %s!" % [e.type.name, e.home.name], "bad")
+	else:
+		hud.show_msg("Hai provocato il %s!" % e.type.name, "bad")
+	e.dragon.roaring = 1.5
+
+
+func _damage_player(amount: float) -> void:
+	if not player_alive or invuln > 0 or not started:
+		return
+	player_hp -= amount
+	last_hit_t = time
+	hurt = minf(1, hurt + amount / 25)
+	fx.shake = maxf(fx.shake, minf(0.8, amount / 30))
+	if player_hp <= 0:
+		player_hp = 0
+		player_alive = false
+		dead_t = 0
+		crashed = false
+		dragon.dying = true
+		dragon.breathing = false
+		hud.show_msg("Sei stato abbattuto!", "bad")
+
+
+func _respawn() -> void:
+	player_alive = true
+	player_hp = 100
+	invuln = 3
+	dragon.dying = false
+	dragon.mode = "air"
+	dragon.pitch = 0.3
+	dragon.position.y = maxf(dragon.ground_y, 0) + 180
+	energy = 100
+	hud.show_msg("Di nuovo in volo!", "small")
 
 
 # Polvere sollevata dalle ali vicino al suolo
@@ -273,7 +359,7 @@ func _handle_actions(actions: Array) -> void:
 		if a == "pause":
 			paused = not paused
 			continue
-		if paused:
+		if paused or not player_alive:
 			continue
 		match a:
 			"land":
@@ -294,7 +380,14 @@ func _handle_actions(actions: Array) -> void:
 					fireball_cd = 0.35
 					var m := dragon.get_mouth()
 					var dir: Vector3 = dragon.aim_dir if dragon.mode == "ground" else m[1]
-					fx.launch_fireball(m[0] + dir * 3, dir * 150 + dragon.velocity, 3)
+					var vel := dir * 150 + dragon.velocity
+					# con un drago nemico nel mirino, la palla di fuoco punta dove si troverà
+					var tgt = enemies.target(dragon, 700, 0.45) if dragon.mode == "air" else null
+					if tgt != null:
+						var td: Dragon = tgt.dragon
+						dir = (td.position + td.velocity * (td.position.distance_to(m[0]) / 170) - m[0]).normalized()
+						vel = dir * 170 + dragon.velocity * 0.2
+					fx.launch_fireball(m[0] + dir * 3, vel, 3)
 					dragon.roaring = 0.3
 					hud.show_msg("Palla di fuoco!")
 				else:
@@ -332,11 +425,11 @@ func _process(delta: float) -> void:
 		hud.update_hud(dt, _hud_state())
 		return
 	time += dt
-	var c: Dictionary = _autopilot() if not started else ctrl_in
+	var c: Dictionary = _autopilot() if not started else (ctrl_in if player_alive else DEAD_CTRL)
 	# a terra: W/S cammina, A/D gira, frecce/mouse destro/levetta destra muovono la testa
 	var grounded := dragon.mode != "air"
-	input.set_pointer_lock(started and dragon.mode == "ground")
-	if grounded and started:
+	input.set_pointer_lock(started and player_alive and dragon.mode == "ground")
+	if grounded and started and player_alive:
 		c = ctrl_in.duplicate()
 		c.steer = ctrl_in.walk_steer
 		c.climb = ctrl_in.walk
@@ -345,11 +438,13 @@ func _process(delta: float) -> void:
 	if test_breathe:
 		c = c.duplicate()
 		c.fire = true
+	# mira assistita sul drago nemico più vicino davanti (solo in volo)
+	var aim = enemies.target(dragon) if started and player_alive and not grounded else null
 	if not grounded:
-		dragon.aim_target = null
+		dragon.aim_target = aim.dragon.position if aim != null else null
 
 	# soffio di fuoco
-	var breathing: bool = started and c.fire and energy > 1
+	var breathing: bool = started and player_alive and c.fire and energy > 1
 	dragon.breathing = breathing
 	var ev := dragon.update_dragon(dt, c, world)
 	if ev.touchdown:
@@ -366,6 +461,9 @@ func _process(delta: float) -> void:
 		# a terra il fuoco va esattamente dove guarda la testa
 		var dir: Vector3 = dragon.aim_dir if dragon.mode == "ground" else m[1]
 		fx.emit_breath(dt, m[0], dir, dragon.velocity)
+		for e in enemies.list:
+			if not e.dragon.dying and Enemies.in_breath(m[0], dir, e.dragon.position, 8 * e.type.scale / 0.5):
+				enemies.damage(e, 34 * dt)
 	else:
 		energy = minf(100, energy + dt * (0.0 if c.fire else 14.0))
 	storm_cd = maxf(0, storm_cd - dt)
@@ -402,6 +500,30 @@ func _process(delta: float) -> void:
 				Vector3(cos(a) * sp + dragon.velocity.x * 0.3, 3 + randf() * 7, sin(a) * sp + dragon.velocity.z * 0.3), 0.8 + randf() * 1.2, 0.8, 3.2, 0)
 			if randf() < 0.15:
 				fx.smoke.spawn(Vector3(dx + cos(a) * r, 1.5, dz + sin(a) * r), Vector3(cos(a) * sp * 0.4, 2, sin(a) * sp * 0.4), 2.5, 6, 20, 1)
+	# combattimento con i draghi guardiani
+	if started:
+		if fx.storm != null:
+			for e in enemies.list:
+				if e.dragon.position.distance_to(dragon.position) < 55:
+					enemies.damage(e, 45 * dt)
+		var ev2 := enemies.update_enemies(dt, dragon, player_alive)
+		if ev2.player_damage > 0:
+			_damage_player(ev2.player_damage)
+		invuln = maxf(0, invuln - dt)
+		if player_alive and time - last_hit_t > 5:
+			player_hp = minf(100, player_hp + dt * 4)
+		if not player_alive:
+			# precipita in fiamme e riparte dopo qualche secondo
+			dead_t += dt
+			if randf() < dt * 40:
+				var p := dragon.position
+				fx.fire.spawn(p, Vector3((randf() - 0.5) * 6, 4, (randf() - 0.5) * 6), 0.6, 3, 8, 1)
+				fx.smoke.spawn(p, Vector3(0, 3, 0), 4, 5, 20, 0)
+			if not crashed and dragon.altitude < 3:
+				crashed = true
+				fx.explode(dragon.position, 1, "none")
+			if dead_t > 4:
+				_respawn()
 	hurt = maxf(0, hurt - dt * 1.5)
 	water.update_water(dt, camera.position, dx, dz, down)
 	world.update(dt, time, camera.position)
@@ -410,14 +532,18 @@ func _process(delta: float) -> void:
 	fx.shake = maxf(fx.shake, flap_shake)
 	flap_shake = maxf(0, flap_shake - dt * 0.8)
 	_update_camera(dt, c)
+	enemies.update_bars(camera)
 	if started:
 		_update_villages()
 	hud.update_hud(dt, _hud_state())
 
 
 func _hud_state() -> Dictionary:
+	var aim = dragon.aim_target if dragon.mode == "air" and dragon.aim_ok and player_alive else null
+	var tgt = enemies.target(dragon) if aim != null else null
 	return {"dragon": dragon, "camera": camera, "hp": player_hp, "energy": energy, "storm_cd": storm_cd,
-		"hurt": hurt, "time": time, "paused": paused, "locked": input.pointer_locked()}
+		"hurt": hurt, "time": time, "paused": paused, "locked": input.pointer_locked(),
+		"aim": aim, "aim_hostile": tgt != null and tgt.hostile, "kills": enemies.kills, "enemies": enemies.list}
 
 
 func _update_villages() -> void:
@@ -426,7 +552,11 @@ func _update_villages() -> void:
 		if Vector2(v.x - dragon.position.x, v.z - dragon.position.z).length() < v.r + 160:
 			near = v
 	if near != null and near != current_village:
-		hud.show_banner(near.name, "Fortezza" if near.kind == "castle" else "Villaggio")
+		var g = enemies.guardian_of(near)
+		var sub: String = "Fortezza" if near.kind == "castle" else "Villaggio"
+		if g != null:
+			sub += " · protetto dal %s" % g.type.name
+		hud.show_banner(near.name, sub)
 	current_village = near
 	for v in world.villages:
 		if announced.has(v.name):

@@ -6,6 +6,7 @@ shader_type spatial;
 uniform vec4 color : source_color = vec4(0.35, 0.04, 0.03, 1.0);
 uniform bool use_map = true;
 uniform float uv_scale = 2.0;
+uniform vec3 flash = vec3(0.0); // lampo quando il drago viene colpito
 uniform float bump = 0.35;
 uniform float roughness = 0.4;
 uniform float metallic = 0.25;
@@ -15,5 +16,6 @@ void fragment() {
 	ALBEDO = color.rgb * (use_map ? h : 1.0);
 	ROUGHNESS = roughness;
 	METALLIC = metallic;
+	EMISSION = flash;
 	NORMAL = bump_normal(NORMAL, VERTEX, h, bump);
 }

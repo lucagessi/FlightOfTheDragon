@@ -54,6 +54,7 @@ var death_spin := 0.0
 var aim_target = null
 var aim_weight := 0.0
 var aim_ok := false
+var flash := 0.0
 # a terra: "air" | "landing" | "ground" | "takeoff"
 var mode := "air"
 var mode_t := 0.0
@@ -518,6 +519,16 @@ func start_loop() -> bool:
 
 
 # Posizione e direzione della bocca nel mondo
+# Lampo rossastro quando viene colpito (k da 0 a 1)
+func set_flash(k: float) -> void:
+	if k == flash and k == 0:
+		return
+	flash = k
+	var c := Vector3(0.9, 0.35, 0.1) * k
+	body_mat.set_shader_parameter("flash", c)
+	mats.skin.set_shader_parameter("flash", c)
+
+
 func get_mouth() -> Array:
 	var dir := (head.global_basis * Vector3(0, -0.05, 1).normalized()).normalized()
 	return [mouth.global_position, dir]
