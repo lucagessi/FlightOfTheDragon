@@ -14,9 +14,9 @@ uniform sampler2DArray tex_arm : hint_default_white, filter_linear_mipmap_anisot
 uniform sampler2DArray tex_h : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 
 // metri coperti da una ripetizione della texture, profondità del rilievo (m) e forza delle normali per strato
-const float SCALE[6] = { 2.5, 3.2, 2.6, 1.6, 1.4, 2.8 };
-const float RELIEF[6] = { 0.0, 0.1, 0.07, 0.0, 0.015, 0.05 };
-const float BUMP[6] = { 0.8, 1.3, 1.4, 0.9, 0.9, 1.2 };
+const float SCALE[6] = { 2.5, 3.2, 3.6, 1.6, 1.4, 2.8 };
+const float RELIEF[6] = { 0.0, 0.1, 0.09, 0.0, 0.015, 0.05 };
+const float BUMP[6] = { 0.8, 1.3, 1.7, 1.1, 0.9, 1.2 };
 
 varying float v_char;
 varying float v_fire;
@@ -80,10 +80,39 @@ void fragment() {
 	float rough;
 	float ao = 1.0;
 	vec3 wn = bn;
-	if (m == 6) {
-		// vetro scuro: riflette il cielo
+	if (m == 6 && v_glow > 0.5) {
+		// finestra: vetri piombati a losanghe, ognuno un po' storto, che riflettono il cielo
+		vec3 t = cross(vec3(0.0, 1.0, 0.0), bn);
+		t = length(t) < 0.1 ? vec3(1.0, 0.0, 0.0) : normalize(t);
+		vec3 b = normalize(cross(bn, t));
+		vec2 q = vec2(dot(bp, t), dot(bp, b));
+		vec2 d = vec2(q.x + q.y * 0.75, q.x - q.y * 0.75) / 0.16;
+		vec2 cell = floor(d);
+		vec2 f = abs(fract(d) - 0.5);
+		float lead = 1.0 - smoothstep(0.42, 0.47, max(f.x, f.y));
+		vec2 tilt = vec2(bh2(cell + v_seed), bh2(cell.yx - v_seed)) - 0.5;
+		col = mix(vec3(0.035, 0.05, 0.07) * (0.8 + 0.5 * bh2(cell * 1.7)), vec3(0.03, 0.028, 0.025), 1.0 - lead);
+		rough = mix(0.04, 0.55, 1.0 - lead);
+		wn = normalize(bn + (t * tilt.x + b * tilt.y) * 0.18 * lead);
+	} else if (m == 6) {
+		// vetro scuro o metallo lucido delle armi
 		col = tint;
 		rough = 0.1;
+	} else if (m == 7) {
+		// pietra squadrata (cantonali, archi, cornici): stucco grigio-sabbia senza fughe, spigoli consumati
+		vec3 t = cross(vec3(0.0, 1.0, 0.0), bn);
+		t = length(t) < 0.1 ? vec3(1.0, 0.0, 0.0) : normalize(t);
+		vec3 b = normalize(cross(bn, t));
+		vec2 uv = vec2(dot(bp, t), dot(bp, b)) / 1.7 + v_seed * 0.37;
+		vec3 dcol = texture(tex_d, vec3(uv, 0.0)).rgb / max(textureLod(tex_d, vec3(0.5, 0.5, 0.0), 12.0).rgb, vec3(0.02));
+		float l = dot(dcol, vec3(0.3, 0.59, 0.11));
+		col = tint * mix(vec3(l), dcol, 0.3) * (0.85 + 0.3 * bvn(bp.xz * 3.0 + bp.y * 2.0 + v_seed));
+		col *= mix(0.75, 1.0, smoothstep(0.0, 1.5, bp.y - v_base));
+		vec3 arm = texture(tex_arm, vec3(uv, 0.0)).rgb;
+		ao = arm.r;
+		rough = 0.85;
+		vec2 nt = texture(tex_n, vec3(uv, 0.0)).xy * 2.0 - 1.0;
+		wn = normalize(bn + (t * nt.x + b * nt.y) * 0.9);
 	} else {
 		// sotto le falde: tavolato di legno scuro
 		if ((m == 1 || m == 5) && bn.y < -0.2) {
@@ -111,6 +140,12 @@ void fragment() {
 			vec3 v = to_cam / dist;
 			uv = pom(layer, uv, vec3(dot(v, t), dot(v, b), dot(v, bn)), depth, dx, dy);
 		}
+		if (m == 1) {
+			// la foto delle tegole ha una fila diversa sul bordo alto: si ripetono solo le 11 file intere
+			uv.y = 0.0244 + fract(uv.y) * 0.9063;
+			dx.y *= 0.9063;
+			dy.y *= 0.9063;
+		}
 		vec3 avg = textureLod(tex_d, vec3(0.5, 0.5, layer), 12.0).rgb;
 		col = textureGrad(tex_d, vec3(uv, layer), dx, dy).rgb / max(avg, vec3(0.02)) * tint;
 		vec3 arm = textureGrad(tex_arm, vec3(uv, layer), dx, dy).rgb;
@@ -132,8 +167,13 @@ void fragment() {
 			col = mix(col, vec3(0.07, 0.085, 0.03), moss * 0.55);
 			rough = mix(rough, 0.95, moss);
 		} else if (m == 2) {
-			// pietra più scura e umida alla base
-			col *= mix(0.72, 1.0, smoothstep(0.0, 1.8, wy));
+			// pietra grigia con poche venature calde (la foto è bruna), più scura e umida alla base,
+			// con colature sotto davanzali e cornici
+			float lum = dot(col, vec3(0.3, 0.59, 0.11));
+			col = mix(vec3(lum) * vec3(1.03, 1.0, 0.95), col, 0.3);
+			col = mix(tint, col, 0.6) * 1.3; // meno contrasto tra pietre e malta
+			col *= mix(0.8, 1.0, smoothstep(0.0, 2.2, wy));
+			col *= 1.0 - 0.18 * smoothstep(0.6, 0.95, bvn(vec2(dot(bp, t) * 1.8, bp.y * 0.12) + v_seed));
 		}
 		float bump = BUMP[m] * (1.0 - v_char * 0.5) * mix(1.0, 0.5, smoothstep(40.0, 200.0, dist));
 		wn = normalize(bn + (t * nt.x + b * nt.y) * 0.6 * bump);

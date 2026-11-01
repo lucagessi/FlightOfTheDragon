@@ -6,6 +6,7 @@ const SUN_DIR := Vector3(-0.47815, 0.29237, -0.82818)
 const DEAD_CTRL := {"steer": 0.0, "climb": 0.0, "throttle": 0.0, "fire": false, "look_x": 0.0, "look_y": 0.15, "zoom": 0.0, "actions": []}
 
 var world: World
+var grass: Grass
 var water: Water
 var dragon: Dragon
 var fx: FX
@@ -45,6 +46,7 @@ var test_closeup := false
 var closeup_pos := Vector3.ZERO
 var closeup_target := Vector3.ZERO
 var closeup_angle := 0.0
+var closeup_dist := 11.0
 
 
 func _ready() -> void:
@@ -53,6 +55,9 @@ func _ready() -> void:
 	world.name = "World"
 	add_child(world)
 	world.generate()
+	grass = Grass.new()
+	grass.setup(world)
+	add_child(grass)
 	water = Water.new()
 	add_child(water)
 	water.setup(world.data_tex)
@@ -112,24 +117,25 @@ func _ready() -> void:
 			_test_fortress.call_deferred(arg.split("=")[1] if "=" in arg else "")
 		elif arg == "--guardian":
 			_test_guardian.call_deferred()
+		elif arg == "--nohud":
+			hud.visible = false
 		elif arg == "--house":
 			_test_house.call_deferred()
 		elif arg.begins_with("--closeup"):
 			test_closeup = true
-			closeup_angle = float(arg.split("=")[1]) if "=" in arg else 0.0
+			# --closeup=<angolo>[:<distanza>]
+			var cv := arg.split("=")[1].split(":") if "=" in arg else PackedStringArray(["0"])
+			closeup_angle = float(cv[0])
+			if cv.size() > 1:
+				closeup_dist = float(cv[1])
 			_test_house.call_deferred()
 	print("Mondo: %d villaggi, %d edifici, %d alberi" % [world.villages.size(), world.stats.total, world.trees.size()])
 
 
 func _setup_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.2, 0.42, 0.78)
-	sky_mat.sky_horizon_color = Color(0.68, 0.77, 0.88)
-	sky_mat.sky_curve = 0.12
-	sky_mat.ground_bottom_color = Color(0.1, 0.16, 0.22)
-	sky_mat.ground_horizon_color = Color(0.68, 0.77, 0.88)
-	sky_mat.sun_angle_max = 18
-	sky_mat.sun_curve = 0.08
+	# cielo con i cumuli (shaders/sky.gdshader)
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = load("res://shaders/sky.gdshader")
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -138,6 +144,9 @@ func _setup_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.ambient_light_energy = 1.3
+	# luce ambiente in parte dal cielo e in parte grigio calda (rimbalzo del suolo): ombre meno blu
+	env.ambient_light_sky_contribution = 0.7
+	env.ambient_light_color = Color(0.66, 0.62, 0.55)
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 0.9
 	env.glow_enabled = true
@@ -145,6 +154,9 @@ func _setup_environment() -> void:
 	env.glow_bloom = 0.05
 	env.glow_hdr_threshold = 1.4
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 1.1
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.62, 0.72, 0.84)
 	env.fog_density = 0.00008
@@ -176,8 +188,8 @@ func _setup_environment() -> void:
 	we.environment = env
 	add_child(we)
 	# luce del sole con ombre
-	sun.light_color = Color(1.0, 0.93, 0.82)
-	sun.light_energy = 1.6
+	sun.light_color = Color(1.0, 0.91, 0.78)
+	sun.light_energy = 1.9
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 1500
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
@@ -229,7 +241,19 @@ func _test_house() -> void:
 	world.burning.clear()
 	var v = current_village_of(dragon.position)
 	var b: World.Building = world.buildings[v.ids[v.ids.size() / 2]]
+	# meglio una casa signorile, la più vicina tra le più ricche (terzo piano, ballatoio, bovindo)
+	var best := INF
+	var show = null
+	for h in world.showcase:
+		var dd: float = Vector2(h.b.x - dragon.position.x, h.b.z - dragon.position.z).length() - h.score * 5000.0
+		if dd < best:
+			best = dd
+			show = h
+	if show != null:
+		b = show.b
 	var a := 2.2
+	if show != null:
+		a = atan2(-cos(show.rot), -sin(show.rot)) # il drago di lato, fuori dall'inquadratura
 	dragon.position = Vector3(b.x + cos(a) * 38, 0, b.z + sin(a) * 38)
 	dragon.position.y = world.ground_height(dragon.position.x, dragon.position.z) + Dragon.STAND
 	dragon.yaw = atan2(b.x - dragon.position.x, b.z - dragon.position.z)
@@ -241,6 +265,30 @@ func _test_house() -> void:
 	var to := Vector3(SUN_DIR.x, 0, SUN_DIR.z).normalized().rotated(Vector3.UP, closeup_angle)
 	closeup_target = Vector3(b.x, b.base + 4, b.z)
 	closeup_pos = closeup_target + to.rotated(Vector3.UP, 0.5) * 17 + Vector3(0, 3, 0)
+	if show != null:
+		# ad altezza d'uomo davanti alla facciata con il portale, un po' di sbieco (closeup_angle lo ruota)
+		var front := Vector3(sin(show.rot), 0, cos(show.rot))
+		var side := Vector3(cos(show.rot), 0, -sin(show.rot))
+		var door: Vector3 = Vector3(b.x, show.floor, b.z) + front * show.d / 2
+		# il primo punto di vista libero (fuori dalle altre case, con la porta in vista) ruotando e avvicinandosi
+		var eye := Vector3.ZERO
+		for k in 40:
+			var ang := closeup_angle + (k % 8) * 0.22 * (1 if k % 2 == 0 else -1)
+			var dist := closeup_dist * (1.0 - (k / 8) * 0.12)
+			var e: Vector3 = door + (front * dist + side * dist * 0.4).rotated(Vector3.UP, ang)
+			e.y = world.ground_height(e.x, e.z) + 1.7
+			var clear := true
+			for t in 12:
+				var q := e.lerp(door + Vector3(0, 1.5, 0), t / 12.0)
+				var hit := world.building_at(q.x, q.y, q.z)
+				if hit != null and hit != b:
+					clear = false
+					break
+			if clear:
+				eye = e
+				break
+		closeup_pos = eye if eye != Vector3.ZERO else door + front * closeup_dist + Vector3(0, 1.7, 0)
+		closeup_target = door + Vector3(0, 3.8, 0) - side * 0.8
 
 
 # Per le verifiche: di fronte al guardiano più vicino, già ostile
@@ -584,6 +632,7 @@ func _process(delta: float) -> void:
 	water.update_water(dt, camera.position, dx, dz, down)
 	world.update(dt, time, camera.position)
 	world.update_terrain(camera.position)
+	grass.update_grass(camera.position, world.ground_height(camera.position.x, camera.position.z), time)
 	fx.update_fx(dt, camera.position, mouth_pos)
 	fx.shake = maxf(fx.shake, flap_shake)
 	flap_shake = maxf(0, flap_shake - dt * 0.8)

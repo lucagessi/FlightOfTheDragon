@@ -38,6 +38,8 @@ static var COLORS := {
 	"window": U.lin(0.07, 0.06, 0.05),
 	"roofs": [U.lin(0.62, 0.25, 0.15), U.lin(0.55, 0.3, 0.18), U.lin(0.6, 0.5, 0.28), U.lin(0.32, 0.33, 0.37), U.lin(0.68, 0.32, 0.18)],
 	"slate": U.lin(0.28, 0.3, 0.35),
+	"ashlar": U.lin(0.7, 0.67, 0.6),
+	"fence": U.lin(0.36, 0.29, 0.21),
 	"castle_roof": U.lin(0.5, 0.14, 0.12),
 	"shutters": [U.lin(0.32, 0.4, 0.3), U.lin(0.45, 0.3, 0.18), U.lin(0.3, 0.36, 0.45), U.lin(0.5, 0.42, 0.3)],
 }
@@ -135,6 +137,7 @@ var tree_fires: Array = []
 var stats := {"total": 0, "burning": 0, "destroyed": 0}
 var villages: Array = []
 var fortress: Fortress
+var showcase: Array = [] # case signorili (frontoni a gradoni) per le inquadrature di prova
 var trees: Array = []
 var tree_grid := {}
 var time := 0.0
@@ -149,11 +152,15 @@ var terrain_chunks: Array[MeshInstance3D] = []
 var smooth_ground := false # dopo la generazione l'altezza segue la superficie morbida disegnata
 
 
-# 0 intonaco, 1 tegole, 2 pietra, 3 travi, 4 assi di legno (porte, imposte), 5 ardesia, 6 vetro:
-# da 0 a 5 sono anche gli strati delle texture degli edifici (BUILDING_LAYERS)
+# 0 intonaco, 1 tegole, 2 pietra, 3 travi, 4 assi di legno (porte, imposte), 5 ardesia, 6 vetro,
+# 7 pietra squadrata: da 0 a 5 sono anche gli strati delle texture degli edifici (BUILDING_LAYERS)
 static func material_of(color: Color) -> int:
 	if color == COLORS.slate or color == COLORS.roofs[3]:
 		return 5
+	if color == COLORS.ashlar:
+		return 7
+	if color == COLORS.fence:
+		return 3
 	if COLORS.roofs.has(color) or color == COLORS.castle_roof:
 		return 1
 	if color == COLORS.stone or color == COLORS.stone_dark:
@@ -491,9 +498,21 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 	var plaster: Color = COLORS.plaster[int(rng.next() * COLORS.plaster.size())]
 	var roof_col: Color = COLORS.roofs[int(rng.next() * COLORS.roofs.size())]
 	var timbered := rng.next() < 0.6
+	# dettagli costruttivi: generatore separato, così la sequenza principale (villaggi, alberi) resta quella originale
+	var D := PartMaker.new(B, _frame(x, z, rot), b.id, gmax, Mulberry32.new(b.id * 7919 + 13))
 
 	P.p("box", 0, gmin - 2, 0, w + 0.5, floor_y - gmin + 2, d + 0.5, 0, COLORS.stone_dark)
 	var wall_col: Color = plaster if timbered else (COLORS.stone if rng.next() < 0.5 else plaster)
+	# casa signorile in pietra: frontoni a gradoni, portale ad arco, finestre in pietra squadrata, tetto più ripido
+	var stepped := not timbered and w >= 8.0 and D.rng.next() < (0.85 if wall_col == COLORS.stone else 0.4)
+	# le più grandi hanno un terzo piano (finestre e marcapiani dal generatore dei dettagli)
+	var extra := 1 if stepped and floors == 2 and (big or w >= 10.0) else 0
+	if stepped:
+		# facciata più alta (il portale e le finestre in pietra non finiscono sotto la gronda) e tetto più ripido
+		wh += 1.2 + 3.2 * extra
+		wall_top = floor_y + wh
+		rh = maxf(rh * 1.3, 4.4 + minf(w, d) * 0.12)
+		b.top = wall_top + rh
 	P.p("box", 0, floor_y, 0, w, wh, d, 0, wall_col)
 	if timbered:
 		for cx in [-w / 2, w / 2]:
@@ -503,22 +522,27 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		if floors == 2:
 			P.p("box", 0, floor_y + 3.2, 0, w + 0.14, 0.32, d + 0.14, 0, COLORS.timber)
 		P.p("box", 0, floor_y, 0, w + 0.14, 0.3, d + 0.14, 0, COLORS.timber)
-	# dettagli costruttivi: generatore separato, così la sequenza principale (villaggi, alberi) resta quella originale
-	var D := PartMaker.new(B, _frame(x, z, rot), b.id, gmax, Mulberry32.new(b.id * 7919 + 13))
 	var jetty := 0.4 if timbered and floors == 2 else 0.0
 	var upper_y := floor_y + 3.2
 	if jetty > 0:
 		# piano superiore sporgente sulla facciata e sul retro, con la trave che lo regge
 		D.p("box", 0, upper_y, 0, w, wall_top - upper_y, d + jetty * 2, 0, plaster)
 		D.p("box", 0, upper_y - 0.3, 0, w + 0.14, 0.32, d + jetty * 2 + 0.14, 0, COLORS.timber)
-	# sottotetto (timpani nel colore del muro) e falde spesse che sporgono oltre i muri
+	# sottotetto (timpani nel colore del muro) e falde spesse che sporgono oltre i muri; con i frontoni a
+	# gradoni le falde si fermano dentro i timpani
 	var gable_col := plaster if timbered else wall_col
-	if w >= d:
+	var along_x := w >= d
+	var roof_at := Transform3D.IDENTITY if along_x else Transform3D(Basis(Vector3.UP, PI / 2), Vector3.ZERO)
+	var ridge_len := w if along_x else d + jetty * 2
+	var span := d + jetty * 2 if along_x else w
+	if along_x:
 		P.p("roof", 0, wall_top, 0, d + jetty * 2, rh, w, PI / 2, gable_col)
-		_gable_roof(D, Transform3D.IDENTITY, w, d + jetty * 2, wall_top, rh, roof_col, timbered)
 	else:
 		P.p("roof", 0, wall_top, 0, w, rh, d + jetty * 2, 0, gable_col)
-		_gable_roof(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3.ZERO), d + jetty * 2, w, wall_top, rh, roof_col, timbered)
+	_gable_roof(D, roof_at, ridge_len, span, wall_top, rh, roof_col, timbered, -0.6 if stepped else 0.5)
+	if stepped:
+		for sg in [-1.0, 1.0]:
+			_stepped_gable(D, roof_at, sg * (ridge_len / 2 + 0.05), span, wall_top, rh)
 	if rng.next() < 0.65:
 		var chx := (rng.next() - 0.5) * w * 0.5
 		P.p("box", chx, wall_top, -d * 0.2, 0.9, rh * 1.05, 0.9, 0, COLORS.stone_dark)
@@ -526,30 +550,57 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		D.p("box", chx, wall_top + rh * 1.05 + 0.16, -d * 0.2, 0.5, 0.3, 0.5, 0, COLORS.stone_dark)
 	# porta e finestre (le finestre si illuminano quando la casa brucia)
 	var door_x := (rng.next() - 0.5) * w * 0.3
-	P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 2.3, 0.12, 0, COLORS.door, 0.5)
-	for s in [-1.0, 1.0]:
-		D.p("box", door_x + s * 0.76, floor_y - 0.2, d / 2, 0.22, 2.55, 0.56, 0, COLORS.timber)
-	D.p("box", door_x, floor_y + 2.1, d / 2, 1.74, 0.26, 0.58, 0, COLORS.timber)
+	if stepped:
+		door_x = 0.0
+		P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 1.95, 0.12, 0, COLORS.door, 0.5)
+		_arched_door(D, door_x, floor_y - 0.2, floor_y + 1.75, d / 2)
+	else:
+		P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 2.3, 0.12, 0, COLORS.door, 0.5)
+		for s in [-1.0, 1.0]:
+			D.p("box", door_x + s * 0.76, floor_y - 0.2, d / 2, 0.22, 2.55, 0.56, 0, COLORS.timber)
+		D.p("box", door_x, floor_y + 2.1, d / 2, 1.74, 0.26, 0.58, 0, COLORS.timber)
 	D.p("box", door_x, floor_y - 0.55, d / 2 + 0.4, 1.9, 0.35, 0.9, 0, COLORS.stone)
 	D.p("box", door_x, floor_y - 0.9, d / 2 + 0.75, 2.1, 0.35, 0.9, 0, COLORS.stone)
-	if D.rng.next() < 0.45:
+	if not stepped and D.rng.next() < 0.45:
 		# tettoia sopra la porta: due mensole e una piccola falda
 		for s in [-1.0, 1.0]:
 			D.pt("box", Transform3D(Basis(Vector3.RIGHT, 0.75) * Basis.from_scale(Vector3(0.12, 1.1, 0.12)), Vector3(door_x + s * 0.9, floor_y + 2.0, d / 2 + 0.05)), COLORS.timber)
 		D.pt("box", Transform3D(Basis(Vector3.RIGHT, 0.42) * Basis.from_scale(Vector3(2.4, 0.12, 1.3)), Vector3(door_x, floor_y + 2.55, d / 2 + 0.05)), roof_col)
+	# ballatoio di legno sul fianco al piano superiore
+	var balcony := floors == 2 and jetty == 0.0 and D.rng.next() < (0.75 if stepped else 0.3)
 	var shutter: Color = COLORS.shutters[int(D.rng.next() * COLORS.shutters.size())]
-	for f in floors:
+	var win_h := 1.3 if stepped else 1.0
+	var win_x := maxf(w / 2 - 1.85, 0.3 * w) if stepped else 0.3 * w
+	# bovindo a graticcio sulla facciata, all'ultimo piano
+	var oriel_f := floors + extra - 1 if stepped and floors + extra >= 2 and D.rng.next() < 0.7 else -1
+	for f in floors + extra:
 		var y := floor_y + 1.2 + f * 3.2
 		var j := jetty if f == 1 else 0.0
-		for sx in [-0.3, 0.3]:
-			P.p("box", sx * w, y, d / 2 + j, 1.0, 1.0, 0.1, 0, COLORS.window, 1)
-			P.p("box", sx * w, y, -d / 2 - j, 1.0, 1.0, 0.1, 0, COLORS.window, 1)
-			_window_trim(D, Transform3D(Basis.IDENTITY, Vector3(sx * w, y, d / 2 + j)), shutter)
-			_window_trim(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * w, y, -d / 2 - j)), shutter)
-		P.p("box", w / 2, y, 0, 0.1, 1.0, 1.0, 0, COLORS.window, 1)
-		P.p("box", -w / 2, y, 0, 0.1, 1.0, 1.0, 0, COLORS.window, 1)
-		_window_trim(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, y, 0)), shutter)
-		_window_trim(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, y, 0)), shutter)
+		var G := P if f < floors else D
+		for sx in [-1.0, 1.0]:
+			G.p("box", sx * win_x, y, d / 2 + j, 1.0, win_h, 0.1, 0, COLORS.window, 1)
+			G.p("box", sx * win_x, y, -d / 2 - j, 1.0, win_h, 0.1, 0, COLORS.window, 1)
+			if stepped:
+				if f == oriel_f and sx > 0:
+					_oriel(D, Transform3D(Basis.IDENTITY, Vector3(win_x - 0.2, 0, d / 2)), y - 0.9, roof_col)
+				else:
+					_window_stone(D, Transform3D(Basis.IDENTITY, Vector3(sx * win_x, y, d / 2)), win_h, f == 1)
+				_window_stone(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * win_x, y, -d / 2)), win_h, false)
+			else:
+				_window_trim(D, Transform3D(Basis.IDENTITY, Vector3(sx * win_x, y, d / 2 + j)), shutter)
+				_window_trim(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * win_x, y, -d / 2 - j)), shutter)
+		G.p("box", w / 2, y, 0, 0.1, win_h, 1.0, 0, COLORS.window, 1)
+		G.p("box", -w / 2, y, 0, 0.1, win_h, 1.0, 0, COLORS.window, 1)
+		var side_at := [Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, y, 0))]
+		if not (balcony and f == 1):
+			side_at.append(Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, y, 0)))
+		for at in side_at:
+			if stepped:
+				_window_stone(D, at, win_h, false)
+			else:
+				_window_trim(D, at, shutter)
+	if balcony:
+		_balcony(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2 - (0.0 if stepped else 0.07), 0, 0)), minf(d * 0.75, 5.5), upper_y, roof_col)
 	if timbered:
 		# graticcio: montanti e controventi su ogni parete e per ogni piano
 		for f in floors:
@@ -560,32 +611,222 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 			_timber_wall(D, Transform3D(Basis.IDENTITY, Vector3(0, 0, d / 2 + j)), w, y0, y1, openings + ([door_x] if f == 0 else []))
 			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0, -d / 2 - j)), w, y0, y1, openings)
 			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
-			_timber_wall(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
+			_timber_wall(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, 0, 0)), d + j * 2, y0, y1, [0.0, -1.0, 1.0] if balcony and f == 1 else [0.0])
 	else:
-		# cantonali in pietra sporgenti, alternati lunghi e corti
+		# cantonali in pietra squadrata sporgenti, alternati lunghi e corti
 		for c in 4:
 			var cx: float = w / 2 if c & 1 else -w / 2
 			var cz: float = d / 2 if c & 2 else -d / 2
-			var y := floor_y
+			var y := floor_y - 0.1
 			var k := 0
 			while y < wall_top - 0.3:
 				var lx := 0.95 if k % 2 == 0 else 0.55
 				var lz := 0.55 if k % 2 == 0 else 0.95
 				var hgt := 0.42 + D.rng.next() * 0.1
-				D.p("box", cx - signf(cx) * (lx / 2 - 0.07), y, cz - signf(cz) * (lz / 2 - 0.07), lx, minf(hgt, wall_top - y) - 0.03, lz, 0, COLORS.stone)
+				D.p("box", cx - signf(cx) * (lx / 2 - 0.07), y, cz - signf(cz) * (lz / 2 - 0.07), lx, minf(hgt, wall_top - y) - 0.03, lz, 0, COLORS.ashlar)
 				y += hgt
 				k += 1
+		# zoccolo e marcapiano in pietra squadrata
+		D.p("box", 0, floor_y - 0.25, 0, w + 0.16, 0.35, d + 0.16, 0, COLORS.ashlar)
+		for k in range(1, floors + extra):
+			D.p("box", 0, floor_y + 3.2 * k - 0.14, 0, w + 0.14, 0.2, d + 0.14, 0, COLORS.ashlar)
+	if stepped:
+		showcase.append({"b": b, "rot": rot, "d": d, "floor": floor_y, "score": extra * 2 + int(balcony) + int(oriel_f >= 0)})
+	if stepped and along_x and rh > 4.2:
+		# abbaino sulla falda della facciata
+		_dormer(D, w * 0.22 if D.rng.next() < 0.5 else -w * 0.22, span, wall_top, rh, roof_col, plaster)
+	if D.rng.next() < (0.55 if stepped else 0.3):
+		# orto recintato davanti alla casa: staccionata di pali e due correnti, con il cancello davanti alla porta
+		var fz := d / 2 + 2.4
+		var fx := w / 2 + 1.2
+		_fence(D, x, z, rot, [Vector2(-fx, -d * 0.1), Vector2(-fx, fz), Vector2(door_x - 1.0, fz)])
+		_fence(D, x, z, rot, [Vector2(door_x + 1.0, fz), Vector2(fx, fz), Vector2(fx, -d * 0.1)])
 	return Vector2(w, d).length() / 2
+
+
+# Frontone a gradoni in pietra (sistema at: colmo lungo X, timpano sul piano x = gx, falde verso ±Z): strati
+# sempre più stretti che superano la falda di un gradino, copertine in pietra squadrata e un pinnacolo in cima
+func _stepped_gable(D: PartMaker, at: Transform3D, gx: float, span: float, y0: float, rh: float) -> void:
+	var s := signf(gx)
+	var th := 0.7
+	var n := clampi(roundi(span / 1.05), 5, 9)
+	var sh := rh / n
+	var tread := (span / 2 + 0.2) / n
+	var cx := gx - s * th / 2
+	for k in n:
+		var hw := span / 2 + 0.5 if k == 0 else (span / 2 + 0.2) * (1.0 - float(k) / n)
+		var y := y0 - (0.5 if k == 0 else 0.0) + sh * k
+		D.pt("box", at * Transform3D(Basis.from_scale(Vector3(th, sh + (0.5 if k == 0 else 0.0), hw * 2)), Vector3(cx, y, 0)), COLORS.stone)
+		var cw := hw - (span / 2 + 0.2) * (1.0 - float(k + 1) / n) if k == 0 else tread
+		for side in [-1.0, 1.0]:
+			D.pt("box", at * Transform3D(Basis.from_scale(Vector3(th + 0.18, 0.16, cw + 0.1)), Vector3(cx, y0 + sh * (k + 1) - 0.02, side * (hw - cw / 2 + 0.05))), COLORS.ashlar)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(th - 0.1, 0.75, 0.7)), Vector3(cx, y0 + rh, 0)), COLORS.stone)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(th + 0.1, 0.16, 0.9)), Vector3(cx, y0 + rh + 0.75, 0)), COLORS.ashlar)
+	# finestrella del sottotetto
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.12, 0.8, 0.5)), Vector3(gx, y0 + rh * 0.35, 0)), COLORS.window, 1)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.2, 0.14, 0.8)), Vector3(gx, y0 + rh * 0.35 + 0.8, 0)), COLORS.ashlar)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.24, 0.1, 0.8)), Vector3(gx, y0 + rh * 0.35 - 0.1, 0)), COLORS.ashlar)
+
+
+# Portale ad arco a tutto sesto: stipiti a blocchi alterni, conci a raggiera con la chiave più lunga e una
+# lunetta di legno (porta verso +Z sul piano z = zf, imposta dell'arco a y = yc)
+func _arched_door(D: PartMaker, cx: float, y0: float, yc: float, zf: float) -> void:
+	var A: Color = COLORS.ashlar
+	var r_in := 0.66
+	D.pt("cyl", Transform3D(Basis(Vector3.RIGHT, PI / 2) * Basis.from_scale(Vector3(r_in, 0.12, r_in)), Vector3(cx, yc, zf - 0.07)), COLORS.door, 0.5)
+	var n := 9
+	for i in n:
+		var a := PI * (i + 0.5) / n
+		var long := 0.62 if i == n / 2 else (0.5 if i % 2 == 0 else 0.42)
+		D.pt("box", Transform3D(Basis(Vector3.BACK, a - PI / 2) * Basis.from_scale(Vector3(0.27, long, 0.3)), Vector3(cx + cos(a) * r_in, yc + sin(a) * r_in, zf)), A)
+	var y := y0
+	var k := 0
+	while y < yc - 0.05:
+		var bw := 0.34 if k % 2 == 0 else 0.24
+		var bh := minf(0.36, yc - y)
+		for s in [-1.0, 1.0]:
+			D.p("box", cx + s * (0.65 + bw / 2), y, zf, bw, bh - 0.025, 0.3, 0, A)
+		y += bh
+		k += 1
+
+
+# Finestra in pietra squadrata (sistema at: finestra verso +Z, base a y = 0, larga 1 e alta h): stipiti a blocchi
+# alterni, davanzale, montante e traverso; arched: arco acuto con la lunetta a vetri invece dell'architrave
+func _window_stone(D: PartMaker, at: Transform3D, h: float, arched: bool) -> void:
+	var A: Color = COLORS.ashlar
+	var y := 0.0
+	var k := 0
+	while y < h - 0.05:
+		var bw := 0.26 if k % 2 == 0 else 0.18
+		var bh := minf(0.33, h - y)
+		for s in [-1.0, 1.0]:
+			D.pt("box", at * Transform3D(Basis.from_scale(Vector3(bw, bh - 0.02, 0.24)), Vector3(s * (0.5 + bw / 2), y, 0.04)), A)
+		y += bh
+		k += 1
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(1.55, 0.14, 0.42)), Vector3(0, -0.14, 0.12)), A)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.08, h, 0.16)), Vector3(0, 0, 0.02)), A)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(1.0, 0.07, 0.16)), Vector3(0, h * 0.64, 0.02)), A)
+	if arched:
+		D.pt("roof", at * Transform3D(Basis.from_scale(Vector3(1.0, 0.62, 0.1)), Vector3(0, h, 0)), COLORS.window, 1)
+		for s in [-1.0, 1.0]:
+			D.pt("box", at * Transform3D(Basis(Vector3.BACK, s * 0.68) * Basis.from_scale(Vector3(0.24, 0.95, 0.24)), Vector3(s * 0.62, h - 0.05, 0.04)), A)
+		D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.06, 0.62, 0.14)), Vector3(0, h, 0.02)), A)
+	else:
+		D.pt("box", at * Transform3D(Basis.from_scale(Vector3(1.62, 0.28, 0.27)), Vector3(0, h, 0.05)), A)
+
+
+# Ballatoio di legno (sistema at: parete sul piano z = 0, ballatoio verso +Z; pavimento a quota y): mensole
+# inclinate, tavolato, ringhiera a colonnine, porta-finestra e una tettoia
+func _balcony(D: PartMaker, at: Transform3D, length: float, y: float, roof_col: Color) -> void:
+	var T: Color = COLORS.timber
+	var dep := 1.35
+	var parts := [
+		[Vector3(0, y - 0.16, dep / 2), Vector3(length, 0.16, dep)],
+		[Vector3(0, y - 0.38, 0.12), Vector3(length, 0.24, 0.24)],
+		[Vector3(0, y + 0.95, dep - 0.07), Vector3(length + 0.1, 0.1, 0.14)],
+		[Vector3(0, y + 0.1, dep - 0.07), Vector3(length, 0.08, 0.1)],
+	]
+	for side in [-1.0, 1.0]:
+		parts.append([Vector3(side * (length / 2 - 0.07), y + 0.95, dep / 2), Vector3(0.14, 0.1, dep)])
+		parts.append([Vector3(side * (length / 2 - 0.07), y - 0.02, dep - 0.07), Vector3(0.16, 2.75, 0.16)])
+	var bx := -length / 2 + 0.25
+	while bx < length / 2 - 0.15:
+		parts.append([Vector3(bx, y + 0.12, dep - 0.07), Vector3(0.055, 0.83, 0.055)])
+		bx += 0.2
+	for side in [-1.0, 1.0]:
+		var bz := 0.3
+		while bz < dep - 0.2:
+			parts.append([Vector3(side * (length / 2 - 0.07), y + 0.12, bz), Vector3(0.055, 0.83, 0.055)])
+			bz += 0.2
+	for p in parts:
+		D.pt("box", at * Transform3D(Basis.from_scale(p[1]), p[0]), T)
+	# mensole che reggono il tavolato
+	var mx := -length / 2 + 0.3
+	while mx < length / 2:
+		D.pt("box", at * Transform3D(Basis(Vector3.RIGHT, 0.72) * Basis.from_scale(Vector3(0.14, 1.5, 0.14)), Vector3(mx, y - 1.4, 0.05)), T)
+		mx += maxf(1.1, (length - 0.6) / 3.0)
+	# porta-finestra e tettoia
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(0.95, 2.5, 0.12)), Vector3(0, y, 0)), COLORS.window, 1)
+	D.pt("box", at * Transform3D(Basis.from_scale(Vector3(1.25, 0.16, 0.2)), Vector3(0, y + 2.5, 0.05)), T)
+	D.pt("box", at * Transform3D(Basis(Vector3.RIGHT, 0.33) * Basis.from_scale(Vector3(length + 0.4, 0.12, dep + 0.45)), Vector3(0, y + 2.85, (dep + 0.45) / 2 * cos(0.33) - 0.05)), roof_col)
+
+
+# Bovindo a graticcio sporgente dalla facciata (sistema at: parete sul piano z = 0, verso +Z; base a quota y):
+# mensole di pietra a gradoni, montanti e traversi di legno, vetrate piombate su tre lati e una falda
+func _oriel(D: PartMaker, at: Transform3D, y: float, roof_col: Color) -> void:
+	var T: Color = COLORS.timber
+	var w := 2.2
+	var dep := 0.85
+	var h := 2.3
+	var parts := [
+		[Vector3(0, y, dep / 2), Vector3(w, h, dep), COLORS.plaster[0], 0.0],
+		[Vector3(0, y - 0.12, dep / 2 + 0.04), Vector3(w + 0.2, 0.22, dep + 0.12), T, 0.0],
+		[Vector3(0, y + h, dep / 2 + 0.04), Vector3(w + 0.2, 0.2, dep + 0.12), T, 0.0],
+		[Vector3(0, y + h * 0.3 - 0.12, dep + 0.02), Vector3(w + 0.04, 0.12, 0.14), T, 0.0],
+		[Vector3(0, y + h * 0.3, dep + 0.01), Vector3(w - 0.3, h * 0.6, 0.06), COLORS.window, 1.0],
+	]
+	for x in [-w / 2, -w / 6, w / 6, w / 2]:
+		parts.append([Vector3(x, y, dep), Vector3(0.14, h, 0.14), T, 0.0])
+	for s in [-1.0, 1.0]:
+		parts.append([Vector3(s * (w / 2 + 0.01), y + h * 0.3, dep / 2), Vector3(0.06, h * 0.6, dep - 0.25), COLORS.window, 1.0])
+		parts.append([Vector3(s * (w / 2 - 0.05), y + h * 0.3 - 0.12, dep / 2), Vector3(0.16, 0.12, dep), T, 0.0])
+		# controventi incrociati sotto le vetrate
+		parts.append([Vector3(s * w / 4, y, dep + 0.02), Vector3(0.1, h * 0.3 - 0.12, 0.08), T, 0.0])
+	for k in 3:
+		parts.append([Vector3(0, y - 0.12 - 0.26 * (k + 1), (dep - k * 0.25) / 2), Vector3(w - k * 0.5, 0.26, dep - k * 0.25), COLORS.ashlar, 0.0])
+	for p in parts:
+		D.pt("box", at * Transform3D(Basis.from_scale(p[1]), p[0]), p[2], p[3])
+	D.pt("box", at * Transform3D(Basis(Vector3.RIGHT, 0.5) * Basis.from_scale(Vector3(w + 0.5, 0.12, dep + 0.5)), Vector3(0, y + h + 0.42, (dep + 0.5) / 2 * cos(0.5) - 0.12)), roof_col)
+
+
+# Abbaino sulla falda verso +Z (colmo lungo X): fianchi in muratura, finestra con cornice di legno e tetto a due falde
+func _dormer(D: PartMaker, cx: float, span: float, y0: float, rh: float, roof_col: Color, wall_col: Color) -> void:
+	var half := span / 2
+	var zf := half * 0.62
+	var y_front := y0 + rh * (1.0 - zf / half)
+	var top := y_front + 1.5
+	var zb := maxf(half * (1.0 - (top + 0.8 - y0) / rh), 0.0)
+	var dw := 1.9
+	D.p("box", cx, y_front - 0.5, (zf + zb) / 2, dw, top - y_front + 0.5, zf - zb, 0, wall_col)
+	D.p("box", cx, y_front + 0.25, zf + 0.02, 0.85, 1.1, 0.1, 0, COLORS.window, 1)
+	for s in [-1.0, 1.0]:
+		D.p("box", cx + s * 0.5, y_front + 0.15, zf + 0.05, 0.14, 1.3, 0.16, 0, COLORS.timber)
+	D.p("box", cx, y_front + 1.3, zf + 0.05, 1.15, 0.14, 0.16, 0, COLORS.timber)
+	D.p("box", cx, y_front + 0.12, zf + 0.12, 1.15, 0.12, 0.3, 0, COLORS.timber)
+	D.p("roof", cx, top, (zf + zb) / 2, dw, 0.8, zf - zb, 0, wall_col)
+	var dat := Transform3D(Basis(Vector3.UP, PI / 2), Vector3(cx, 0, (zf + zb) / 2 + 0.2))
+	_gable_roof(D, dat, zf - zb + 0.4, dw, top, 0.8, roof_col, false, 0.25)
+
+
+# Staccionata di pali e due correnti che seguono il terreno lungo una spezzata (punti nel sistema della casa)
+func _fence(D: PartMaker, x: float, z: float, rot: float, pts: Array) -> void:
+	var C: Color = COLORS.fence
+	for i in pts.size() - 1:
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[i + 1]
+		var n := maxi(1, ceili(a.distance_to(b) / 2.0))
+		var prev := Vector3.INF
+		for k in n + 1:
+			var l := a.lerp(b, float(k) / n)
+			var wpos := _local_to_world(x, z, rot, l.x, l.y)
+			var g := ground_height(wpos.x, wpos.y)
+			var top := Vector3(l.x, g + 1.15, l.y)
+			D.pt("box", Transform3D(Basis(Vector3.UP, D.rng.next() * 0.3) * Basis.from_scale(Vector3(0.14, 1.45 + D.rng.next() * 0.1, 0.14)), Vector3(l.x, g - 0.3, l.y)), C, 0.0, 3)
+			if prev != Vector3.INF:
+				var dv := top - prev
+				var nz := Vector3(-dv.z, 0, dv.x).normalized() * 0.07
+				for dy in [0.0, -0.55]:
+					D.pt("box", Transform3D(Basis(dv, Vector3(0, 0.1, 0), nz), (prev + top) / 2 + Vector3(0, dy - 0.12, 0)), C, 0.0, 3)
+			prev = top
 
 
 # Tetto a due falde con spessore. Sistema locale at: colmo lungo X, falde verso ±Z, muri lunghi length
 # (lungo il colmo) e span (di traverso), sommità dei muri a y0. Le falde sporgono oltre i muri e scendono
 # sotto la loro sommità (gronda), con mantovane sui timpani, testate dei travetti e coppi sul colmo.
-func _gable_roof(D: PartMaker, at: Transform3D, length: float, span: float, y0: float, rh: float, col: Color, timbered: bool) -> void:
+func _gable_roof(D: PartMaker, at: Transform3D, length: float, span: float, y0: float, rh: float, col: Color, timbered: bool, gov := 0.5) -> void:
 	var a := atan2(rh, span / 2)
 	var hyp := Vector2(span / 2, rh).length()
-	var ov := 0.75 # sporgenza della gronda in orizzontale
-	var gov := 0.5 # sporgenza sui timpani
+	var ov := 0.75 if gov > 0 else 0.4 # sporgenza della gronda in orizzontale (corta tra i frontoni in muratura)
 	var th := 0.24
 	var u0 := -0.15
 	var u1 := hyp + ov / cos(a)
@@ -597,20 +838,20 @@ func _gable_roof(D: PartMaker, at: Transform3D, length: float, span: float, y0: 
 		var at_u := func(u: float) -> Vector3: return Vector3(0, y0 + rh - u * sin(a), s * u * cos(a))
 		var mid: Vector3 = at_u.call((u0 + u1) / 2)
 		D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(L, th, u1 - u0)), mid), col)
-		# mantovane sui bordi dei timpani
-		for gx in [-L / 2 + 0.06, L / 2 - 0.06]:
+		# mantovane sui bordi dei timpani (non con i frontoni in muratura)
+		for gx in ([-L / 2 + 0.06, L / 2 - 0.06] if gov > 0 else []):
 			D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(0.14, 0.46, u1 - u0)), mid + up * (th + 0.05 - 0.46) + Vector3(gx, 0, 0)), COLORS.timber)
 		# testate dei travetti sotto la gronda
 		var ur := hyp - 0.3
 		var rmid: Vector3 = at_u.call((ur + u1 - 0.06) / 2)
-		var x := -length / 2 + 0.35
-		while x < length / 2:
+		var x := -L / 2 + 0.35
+		while x < L / 2:
 			D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(0.13, 0.17, u1 - 0.06 - ur)), rmid - up * 0.17 + Vector3(x, 0, 0)), COLORS.timber)
 			x += 0.85
 	# coppi sul colmo
 	var ry := y0 + rh + th / cos(a) - 0.08
 	D.pt("cyl", at * Transform3D(Basis(Vector3.BACK, PI / 2) * Basis.from_scale(Vector3(0.2, L + 0.1, 0.2)), Vector3(L / 2 + 0.05, ry, 0)), col.darkened(0.2), 0.0, material_of(col))
-	if timbered:
+	if timbered and gov > 0:
 		# capriata a vista sui timpani: catena, monaco, controcatena e due montanti
 		for gx in [-length / 2 - 0.05, length / 2 + 0.05]:
 			var parts := [

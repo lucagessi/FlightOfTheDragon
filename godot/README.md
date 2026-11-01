@@ -11,7 +11,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--guardian` mette di fronte al guardiano più vicino già ostile, `--fortress` davanti alla fortezza già risvegliata (`--fortress=<angolo>` la inquadra tutta da quella direzione, `--fortress=post` da vicino sulle armi del mastio), `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>[:<distanza>]]` inquadra ad altezza d'uomo la casa signorile più ricca vicina (portale, ballatoio, bovindo), `--nohud` nasconde l'HUD, `--guardian` mette di fronte al guardiano più vicino già ostile, `--fortress` davanti alla fortezza già risvegliata (`--fortress=<angolo>` la inquadra tutta da quella direzione, `--fortress=post` da vicino sulle armi del mastio), `--breathe` tiene premuto il fuoco,
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -26,6 +26,19 @@ node godot/tools/export_world.mjs
 
 Villaggi, edifici e alberi sono generati in GDScript con lo stesso generatore casuale (`mulberry32`, seme 2024);
 i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore separato per edificio.
+
+## Case, prati e cielo
+
+- **Case signorili in pietra**: una parte delle case in muratura ha frontoni a gradoni con copertine e
+  pinnacolo, portale ad arco a conci con lunetta di legno, finestre in pietra squadrata con montante e traverso
+  (ad arco acuto al primo piano), cantonali, zoccolo e marcapiani, abbaino sulla falda, ballatoio di legno sul
+  fianco, bovindo a graticcio e, le più grandi, un terzo piano. Molte case hanno l'orto recintato da una
+  staccionata. Le finestre sono vetri piombati a losanghe (nello shader degli edifici).
+- **Erba** (`scripts/grass.gd`, `shaders/grass.gdshader`): ciuffi di fili su un reticolo fisso intorno alla
+  camera, fitto fino a 28 m e più rado fino a 62 m, appoggiati sul terreno con la stessa altezza dello shader del
+  suolo, diradati su terra battuta, piazze, campi arati, sabbia, roccia e neve, spighe dorate nei campi di grano,
+  mossi dal vento. Sparisce sopra i 140 m dal suolo.
+- **Cielo** (`shaders/sky.gdshader`): gradiente, sole e uno strato di cumuli procedurali illuminati dal sole.
 
 ## La fortezza di Monte Nero
 
@@ -75,7 +88,8 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | File | Contenuto |
 | --- | --- |
 | `scripts/main.gd` | ciclo di gioco, ambiente, camera in terza persona |
-| `scripts/world.gd` | terreno, villaggi, castello, alberi, incendi |
+| `scripts/world.gd` | terreno, villaggi, case, castello, alberi, incendi |
+| `scripts/grass.gd` | prato di fili d'erba intorno alla camera |
 | `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
 | `scripts/audio.gd` | audio procedurale: vento, ali, fiamme, mare, incendi, esplosioni, ruggiti |
@@ -85,11 +99,11 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/water.gd` | mare che segue la camera |
 | `scripts/game_input.gd` | tastiera, mouse, joystick e combinazioni |
 | `scripts/hud.gd` | HUD, minimappa, aiuto, schermata iniziale |
-| `shaders/` | terreno, edifici in fiamme, foglie, mare, pelle e membrana del drago, particelle |
+| `shaders/` | terreno ed erba (con le parti comuni in `terrain_common.gdshaderinc`), cielo, edifici in fiamme, foglie, mare, pelle e membrana del drago, particelle |
 | `textures/` | materiali PBR CC0 (colore, normali, occlusione/rugosità, rilievo) |
 
 ## Non ancora portato
 
-- nuvole, bagliore del sole sullo schermo
+- nuvole volumetriche da attraversare in volo, bagliore del sole sullo schermo
 - bruciature sul terreno e detriti delle esplosioni
 - pipeline di rilascio in CI
