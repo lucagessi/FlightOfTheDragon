@@ -13,6 +13,10 @@ const BURN_TEX_SIZE := 1024
 const CHUNKS := 16
 const LOD_SEGS := [128, 64, 32, 16] # suddivisioni di un blocco per livello (passo 3,7 / 7,4 / 15 / 30 m)
 const LOD_DIST := [650.0, 1400.0, 2800.0]
+const BUILDING_LAYERS := ["plaster", "roof_tiles", "stone_wall", "timber", "shutter", "roof_slate"]
+const TERRAIN_LAYERS := ["grass", "dirt", "rock", "sand", "snow", "cobble"]
+const TREE_CELL := 250.0 # gli alberi sono raggruppati in blocchi, ognuno con il suo livello di dettaglio
+const TREE_NEAR := 430.0 # distanza del centro del blocco entro cui si usano i modelli dettagliati
 
 # isole: x, z, raggio
 const ISLANDS := [
@@ -65,7 +69,7 @@ class GeoBuilder:
 	var col := PackedColorArray()
 	var cus := PackedFloat32Array()
 
-	# mat: 0 intonaco, 1 tegole/ardesia, 2 pietra, 3 legno, 4 finestre e porte
+	# mat: vedi World.material_of
 	func add(prim: Dictionary, xf: Transform3D, color: Color, bid: int, base_y: float, glow := 0.0, rng: Mulberry32 = null, mat := 0) -> void:
 		var nb := xf.basis.inverse().transposed()
 		var j := 0.9 + rng.next() * 0.2 if rng else 1.0
@@ -110,13 +114,14 @@ class PartMaker:
 		base = base_y
 		rng = r
 
-	func p(kind: String, lx: float, ly: float, lz: float, sx: float, sy: float, sz: float, ry: float, color: Color, glow := 0.0) -> void:
+	# mat < 0: materiale dedotto dal colore
+	func p(kind: String, lx: float, ly: float, lz: float, sx: float, sy: float, sz: float, ry: float, color: Color, glow := 0.0, mat := -1) -> void:
 		var xf := frame * Transform3D(Basis(Vector3.UP, ry) * Basis.from_scale(Vector3(sx, sy, sz)), Vector3(lx, ly, lz))
-		b.add(Prims.get_prim(kind), xf, color, bid, base, glow, rng, World.material_of(color))
+		b.add(Prims.get_prim(kind), xf, color, bid, base, glow, rng, mat if mat >= 0 else World.material_of(color))
 
-	# Parte con una trasformazione locale qualsiasi (travi inclinate, imposte aperte)
-	func pt(kind: String, local: Transform3D, color: Color, glow := 0.0) -> void:
-		b.add(Prims.get_prim(kind), frame * local, color, bid, base, glow, rng, World.material_of(color))
+	# Parte con una trasformazione locale qualsiasi (travi inclinate, falde, imposte aperte)
+	func pt(kind: String, local: Transform3D, color: Color, glow := 0.0, mat := -1) -> void:
+		b.add(Prims.get_prim(kind), frame * local, color, bid, base, glow, rng, mat if mat >= 0 else World.material_of(color))
 
 
 var data: PackedFloat32Array # per vertice: altezza, rumore fine, foresta
@@ -131,7 +136,6 @@ var stats := {"total": 0, "burning": 0, "destroyed": 0}
 var villages: Array = []
 var trees: Array = []
 var tree_grid := {}
-var tree_meshes: Array[MultiMesh] = []
 var time := 0.0
 var fx = null
 
@@ -144,7 +148,8 @@ var terrain_chunks: Array[MeshInstance3D] = []
 var smooth_ground := false # dopo la generazione l'altezza segue la superficie morbida disegnata
 
 
-# 0 intonaco, 1 tegole, 2 pietra, 3 travi, 4 vetro, 5 ardesia, 6 assi di legno (porte, imposte)
+# 0 intonaco, 1 tegole, 2 pietra, 3 travi, 4 assi di legno (porte, imposte), 5 ardesia, 6 vetro:
+# da 0 a 5 sono anche gli strati delle texture degli edifici (BUILDING_LAYERS)
 static func material_of(color: Color) -> int:
 	if color == COLORS.slate or color == COLORS.roofs[3]:
 		return 5
@@ -155,9 +160,9 @@ static func material_of(color: Color) -> int:
 	if color == COLORS.timber:
 		return 3
 	if color == COLORS.window:
-		return 4
-	if color == COLORS.door or COLORS.shutters.has(color):
 		return 6
+	if color == COLORS.door or COLORS.shutters.has(color):
+		return 4
 	return 0
 
 
@@ -175,7 +180,7 @@ func generate() -> void:
 	building_material.shader = load("res://shaders/building.gdshader")
 	building_material.set_shader_parameter("burn_tex", burn_tex)
 	building_material.set_shader_parameter("burn_size", float(BURN_TEX_SIZE))
-	set_textures(building_material, ["plaster", "roof_tiles", "roof_slate", "stone_wall", "timber", "shutter"])
+	set_texture_layers(building_material, BUILDING_LAYERS)
 	for v in villages:
 		if v.kind == "castle":
 			_build_castle(v)
@@ -320,7 +325,7 @@ func _build_terrain_mesh() -> void:
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/terrain.gdshader")
 	terrain_material.set_shader_parameter("terrain_data", data_tex)
-	set_textures(terrain_material, ["grass", "dirt", "rock", "sand", "snow", "cobble"])
+	set_texture_layers(terrain_material, TERRAIN_LAYERS)
 	var vs := PackedVector4Array()
 	for i in 12:
 		if i < villages.size():
@@ -341,11 +346,16 @@ func _build_terrain_mesh() -> void:
 			terrain_chunks.append(mi)
 
 
-# Collega a un materiale le texture fotografiche (textures/<nome>_diff.jpg e _nor.jpg) come <nome>_d e <nome>_n
-static func set_textures(mat: ShaderMaterial, names: Array) -> void:
-	for n in names:
-		mat.set_shader_parameter(n + "_d", load("res://textures/%s_diff.jpg" % n))
-		mat.set_shader_parameter(n + "_n", load("res://textures/%s_nor.jpg" % n))
+# Collega a un materiale le texture PBR (textures/<nome>_diff/_nor/_arm/_disp.jpg) come array di strati
+# tex_d, tex_n, tex_arm (occlusione, rugosità, metallo) e tex_h (rilievo), nell'ordine di names
+static func set_texture_layers(mat: ShaderMaterial, names: Array) -> void:
+	for m in [["diff", "tex_d"], ["nor", "tex_n"], ["arm", "tex_arm"], ["disp", "tex_h"]]:
+		var images: Array[Image] = []
+		for n in names:
+			images.append((load("res://textures/%s_%s.jpg" % [n, m[0]]) as Texture2D).get_image())
+		var arr := Texture2DArray.new()
+		arr.create_from_images(images)
+		mat.set_shader_parameter(m[1], arr)
 
 
 # Griglia di un blocco con "gonne" verticali sui bordi che coprono le fessure tra livelli diversi
@@ -477,7 +487,7 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 	var roof_col: Color = COLORS.roofs[int(rng.next() * COLORS.roofs.size())]
 	var timbered := rng.next() < 0.6
 
-	P.p("box", 0, gmin - 2, 0, w + 0.3, floor_y - gmin + 2, d + 0.3, 0, COLORS.stone_dark)
+	P.p("box", 0, gmin - 2, 0, w + 0.5, floor_y - gmin + 2, d + 0.5, 0, COLORS.stone_dark)
 	var wall_col: Color = plaster if timbered else (COLORS.stone if rng.next() < 0.5 else plaster)
 	P.p("box", 0, floor_y, 0, w, wh, d, 0, wall_col)
 	if timbered:
@@ -496,34 +506,43 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		# piano superiore sporgente sulla facciata e sul retro, con la trave che lo regge
 		D.p("box", 0, upper_y, 0, w, wall_top - upper_y, d + jetty * 2, 0, plaster)
 		D.p("box", 0, upper_y - 0.3, 0, w + 0.14, 0.32, d + jetty * 2 + 0.14, 0, COLORS.timber)
+	# sottotetto (timpani nel colore del muro) e falde spesse che sporgono oltre i muri
+	var gable_col := plaster if timbered else wall_col
 	if w >= d:
-		P.p("roof", 0, wall_top, 0, d + 1.3 + jetty * 2, rh, w + 1.0, PI / 2, roof_col)
-		D.p("box", 0, wall_top + rh - 0.12, 0, w + 1.1, 0.24, 0.32, 0, roof_col.darkened(0.25))
+		P.p("roof", 0, wall_top, 0, d + jetty * 2, rh, w, PI / 2, gable_col)
+		_gable_roof(D, Transform3D.IDENTITY, w, d + jetty * 2, wall_top, rh, roof_col, timbered)
 	else:
-		P.p("roof", 0, wall_top, 0, w + 1.3, rh, d + 1.0 + jetty * 2, 0, roof_col)
-		D.p("box", 0, wall_top + rh - 0.12, 0, 0.32, 0.24, d + 1.1 + jetty * 2, 0, roof_col.darkened(0.25))
+		P.p("roof", 0, wall_top, 0, w, rh, d + jetty * 2, 0, gable_col)
+		_gable_roof(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3.ZERO), d + jetty * 2, w, wall_top, rh, roof_col, timbered)
 	if rng.next() < 0.65:
 		var chx := (rng.next() - 0.5) * w * 0.5
-		P.p("box", chx, wall_top, -d * 0.2, 0.9, rh * 0.95, 0.9, 0, COLORS.stone_dark)
-		D.p("box", chx, wall_top + rh * 0.95, -d * 0.2, 1.2, 0.16, 1.2, 0, COLORS.stone)
+		P.p("box", chx, wall_top, -d * 0.2, 0.9, rh * 1.05, 0.9, 0, COLORS.stone_dark)
+		D.p("box", chx, wall_top + rh * 1.05, -d * 0.2, 1.2, 0.16, 1.2, 0, COLORS.stone)
+		D.p("box", chx, wall_top + rh * 1.05 + 0.16, -d * 0.2, 0.5, 0.3, 0.5, 0, COLORS.stone_dark)
 	# porta e finestre (le finestre si illuminano quando la casa brucia)
 	var door_x := (rng.next() - 0.5) * w * 0.3
-	P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 2.3, 0.3, 0, COLORS.door, 0.5)
+	P.p("box", door_x, floor_y - 0.2, d / 2, 1.3, 2.3, 0.12, 0, COLORS.door, 0.5)
 	for s in [-1.0, 1.0]:
-		D.p("box", door_x + s * 0.74, floor_y - 0.2, d / 2, 0.16, 2.5, 0.4, 0, COLORS.timber)
-	D.p("box", door_x, floor_y + 2.1, d / 2, 1.66, 0.2, 0.42, 0, COLORS.timber)
-	D.p("box", door_x, floor_y - 0.55, d / 2 + 0.35, 1.8, 0.35, 0.8, 0, COLORS.stone)
+		D.p("box", door_x + s * 0.76, floor_y - 0.2, d / 2, 0.22, 2.55, 0.56, 0, COLORS.timber)
+	D.p("box", door_x, floor_y + 2.1, d / 2, 1.74, 0.26, 0.58, 0, COLORS.timber)
+	D.p("box", door_x, floor_y - 0.55, d / 2 + 0.4, 1.9, 0.35, 0.9, 0, COLORS.stone)
+	D.p("box", door_x, floor_y - 0.9, d / 2 + 0.75, 2.1, 0.35, 0.9, 0, COLORS.stone)
+	if D.rng.next() < 0.45:
+		# tettoia sopra la porta: due mensole e una piccola falda
+		for s in [-1.0, 1.0]:
+			D.pt("box", Transform3D(Basis(Vector3.RIGHT, 0.75) * Basis.from_scale(Vector3(0.12, 1.1, 0.12)), Vector3(door_x + s * 0.9, floor_y + 2.0, d / 2 + 0.05)), COLORS.timber)
+		D.pt("box", Transform3D(Basis(Vector3.RIGHT, 0.42) * Basis.from_scale(Vector3(2.4, 0.12, 1.3)), Vector3(door_x, floor_y + 2.55, d / 2 + 0.05)), roof_col)
 	var shutter: Color = COLORS.shutters[int(D.rng.next() * COLORS.shutters.size())]
 	for f in floors:
 		var y := floor_y + 1.2 + f * 3.2
 		var j := jetty if f == 1 else 0.0
 		for sx in [-0.3, 0.3]:
-			P.p("box", sx * w, y, d / 2 + j, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
-			P.p("box", sx * w, y, -d / 2 - j, 1.0, 1.0, 0.28, 0, COLORS.window, 1)
+			P.p("box", sx * w, y, d / 2 + j, 1.0, 1.0, 0.1, 0, COLORS.window, 1)
+			P.p("box", sx * w, y, -d / 2 - j, 1.0, 1.0, 0.1, 0, COLORS.window, 1)
 			_window_trim(D, Transform3D(Basis.IDENTITY, Vector3(sx * w, y, d / 2 + j)), shutter)
 			_window_trim(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * w, y, -d / 2 - j)), shutter)
-		P.p("box", w / 2, y, 0, 0.28, 1.0, 1.0, 0, COLORS.window, 1)
-		P.p("box", -w / 2, y, 0, 0.28, 1.0, 1.0, 0, COLORS.window, 1)
+		P.p("box", w / 2, y, 0, 0.1, 1.0, 1.0, 0, COLORS.window, 1)
+		P.p("box", -w / 2, y, 0, 0.1, 1.0, 1.0, 0, COLORS.window, 1)
 		_window_trim(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, y, 0)), shutter)
 		_window_trim(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, y, 0)), shutter)
 	if timbered:
@@ -537,20 +556,80 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0, -d / 2 - j)), w, y0, y1, openings)
 			_timber_wall(D, Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
 			_timber_wall(D, Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, 0, 0)), d + j * 2, y0, y1, [0.0])
+	else:
+		# cantonali in pietra sporgenti, alternati lunghi e corti
+		for c in 4:
+			var cx: float = w / 2 if c & 1 else -w / 2
+			var cz: float = d / 2 if c & 2 else -d / 2
+			var y := floor_y
+			var k := 0
+			while y < wall_top - 0.3:
+				var lx := 0.95 if k % 2 == 0 else 0.55
+				var lz := 0.55 if k % 2 == 0 else 0.95
+				var hgt := 0.42 + D.rng.next() * 0.1
+				D.p("box", cx - signf(cx) * (lx / 2 - 0.07), y, cz - signf(cz) * (lz / 2 - 0.07), lx, minf(hgt, wall_top - y) - 0.03, lz, 0, COLORS.stone)
+				y += hgt
+				k += 1
 	return Vector2(w, d).length() / 2
+
+
+# Tetto a due falde con spessore. Sistema locale at: colmo lungo X, falde verso ±Z, muri lunghi length
+# (lungo il colmo) e span (di traverso), sommità dei muri a y0. Le falde sporgono oltre i muri e scendono
+# sotto la loro sommità (gronda), con mantovane sui timpani, testate dei travetti e coppi sul colmo.
+func _gable_roof(D: PartMaker, at: Transform3D, length: float, span: float, y0: float, rh: float, col: Color, timbered: bool) -> void:
+	var a := atan2(rh, span / 2)
+	var hyp := Vector2(span / 2, rh).length()
+	var ov := 0.75 # sporgenza della gronda in orizzontale
+	var gov := 0.5 # sporgenza sui timpani
+	var th := 0.24
+	var u0 := -0.15
+	var u1 := hyp + ov / cos(a)
+	var L := length + gov * 2
+	for s in [-1.0, 1.0]:
+		var rot := Basis(Vector3.RIGHT, s * a)
+		var up := rot * Vector3.UP
+		# punto della faccia inferiore della falda a distanza u dal colmo
+		var at_u := func(u: float) -> Vector3: return Vector3(0, y0 + rh - u * sin(a), s * u * cos(a))
+		var mid: Vector3 = at_u.call((u0 + u1) / 2)
+		D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(L, th, u1 - u0)), mid), col)
+		# mantovane sui bordi dei timpani
+		for gx in [-L / 2 + 0.06, L / 2 - 0.06]:
+			D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(0.14, 0.46, u1 - u0)), mid + up * (th + 0.05 - 0.46) + Vector3(gx, 0, 0)), COLORS.timber)
+		# testate dei travetti sotto la gronda
+		var ur := hyp - 0.3
+		var rmid: Vector3 = at_u.call((ur + u1 - 0.06) / 2)
+		var x := -length / 2 + 0.35
+		while x < length / 2:
+			D.pt("box", at * Transform3D(rot * Basis.from_scale(Vector3(0.13, 0.17, u1 - 0.06 - ur)), rmid - up * 0.17 + Vector3(x, 0, 0)), COLORS.timber)
+			x += 0.85
+	# coppi sul colmo
+	var ry := y0 + rh + th / cos(a) - 0.08
+	D.pt("cyl", at * Transform3D(Basis(Vector3.BACK, PI / 2) * Basis.from_scale(Vector3(0.2, L + 0.1, 0.2)), Vector3(L / 2 + 0.05, ry, 0)), col.darkened(0.2), 0.0, material_of(col))
+	if timbered:
+		# capriata a vista sui timpani: catena, monaco, controcatena e due montanti
+		for gx in [-length / 2 - 0.05, length / 2 + 0.05]:
+			var parts := [
+				[Vector3(gx, y0 - 0.1, 0), Vector3(0.16, 0.24, span + 0.1)],
+				[Vector3(gx, y0, 0), Vector3(0.15, rh * 0.93, 0.22)],
+				[Vector3(gx, y0 + rh * 0.45, 0), Vector3(0.14, 0.18, span * 0.55)],
+				[Vector3(gx, y0, -span / 4), Vector3(0.14, rh * 0.5, 0.18)],
+				[Vector3(gx, y0, span / 4), Vector3(0.14, rh * 0.5, 0.18)],
+			]
+			for p in parts:
+				D.pt("box", at * Transform3D(Basis.from_scale(p[1]), p[0]), COLORS.timber)
 
 
 # Cornice, davanzale, croce e imposte aperte di una finestra (sistema locale: finestra verso +Z, base a y=0)
 func _window_trim(D: PartMaker, at: Transform3D, shutter: Color) -> void:
 	var parts := [
-		[Vector3(0, 1.0, 0.02), Vector3(1.3, 0.12, 0.36), COLORS.timber],
-		[Vector3(-0.56, 0, 0.02), Vector3(0.12, 1.0, 0.36), COLORS.timber],
-		[Vector3(0.56, 0, 0.02), Vector3(0.12, 1.0, 0.36), COLORS.timber],
-		[Vector3(0, -0.12, 0.1), Vector3(1.4, 0.12, 0.5), COLORS.stone],
-		[Vector3(0, 0, 0.02), Vector3(0.06, 1.0, 0.32), COLORS.timber],
-		[Vector3(0, 0.47, 0.02), Vector3(1.0, 0.06, 0.32), COLORS.timber],
-		[Vector3(-0.9, 0, 0.16), Vector3(0.52, 1.02, 0.06), shutter],
-		[Vector3(0.9, 0, 0.16), Vector3(0.52, 1.02, 0.06), shutter],
+		[Vector3(0, 1.0, 0.06), Vector3(1.34, 0.16, 0.5), COLORS.timber],
+		[Vector3(-0.58, 0, 0.06), Vector3(0.16, 1.0, 0.5), COLORS.timber],
+		[Vector3(0.58, 0, 0.06), Vector3(0.16, 1.0, 0.5), COLORS.timber],
+		[Vector3(0, -0.14, 0.14), Vector3(1.5, 0.14, 0.62), COLORS.stone],
+		[Vector3(0, 0, 0.0), Vector3(0.06, 1.0, 0.16), COLORS.timber],
+		[Vector3(0, 0.47, 0.0), Vector3(1.0, 0.06, 0.16), COLORS.timber],
+		[Vector3(-0.94, 0, 0.3), Vector3(0.52, 1.02, 0.06), shutter],
+		[Vector3(0.94, 0, 0.3), Vector3(0.52, 1.02, 0.06), shutter],
 	]
 	for p in parts:
 		D.pt("box", at * Transform3D(Basis.from_scale(p[1]), p[0]), p[2])
@@ -589,7 +668,8 @@ func _add_church(B: GeoBuilder, x: float, z: float, rot: float, village) -> void
 	var nave := _new_building([Vector3(a.x, a.y, 7.5), Vector3(bb.x, bb.y, 7.5)], gmax, gmax + h + 7, village)
 	var P := PartMaker.new(B, _frame(x, z, rot), nave.id, gmax, rng)
 	P.p("box", 0, gmin - 2, 0, w, gmax + h - gmin + 2, d, 0, COLORS.stone)
-	P.p("roof", 0, gmax + h, 0, w + 1.4, 7, d + 0.8, 0, COLORS.slate)
+	P.p("roof", 0, gmax + h, 0, w, 7, d, 0, COLORS.stone)
+	_gable_roof(PartMaker.new(B, _frame(x, z, rot), nave.id, gmax, Mulberry32.new(nave.id * 7919 + 13)), Transform3D(Basis(Vector3.UP, PI / 2), Vector3.ZERO), d, w, gmax + h, 7, COLORS.slate, false)
 	P.p("box", 0, gmax, d / 2, 2.2, 4, 0.4, 0, COLORS.door, 0.6)
 	for i in range(-2, 3):
 		P.p("box", w / 2, gmax + 3.5, i * 4, 0.3, 3.2, 1.1, 0, COLORS.window, 1)
@@ -778,52 +858,15 @@ func _add_mesh(B: GeoBuilder) -> void:
 
 
 # ---------------- ALBERI ----------------
-func _merge(parts: Array) -> ArrayMesh:
-	var B := GeoBuilder.new()
-	for part in parts:
-		B.add(Prims.get_prim(part[0]), part[1], part[2], 0, -1e6)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = B.pos
-	arrays[Mesh.ARRAY_NORMAL] = B.nor
-	arrays[Mesh.ARRAY_COLOR] = B.col
-	var m := ArrayMesh.new()
-	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return m
-
-
-static func _M(x: float, y: float, z: float, sx: float, sy: float, sz: float) -> Transform3D:
-	return Transform3D(Basis.from_scale(Vector3(sx, sy, sz)), Vector3(x, y, z))
-
-
 func _build_trees() -> void:
-	var trunk := U.lin(0.3, 0.2, 0.12)
-	var pine := U.lin(0.12, 0.24, 0.11)
-	var leaf := U.lin(0.24, 0.38, 0.13)
-	var leaf2 := U.lin(0.3, 0.42, 0.15)
-	var conifer := _merge([
-		["cyl", _M(0, -1, 0, 0.35, 3.5, 0.35), trunk],
-		["cone8", _M(0, 1.6, 0, 2.6, 4.6, 2.6), pine],
-		["cone8", _M(0, 3.9, 0, 2.0, 3.9, 2.0), pine],
-		["cone8", _M(0, 6.0, 0, 1.3, 3.2, 1.3), pine],
-	])
-	var broad := _merge([
-		["cyl", _M(0, -1, 0, 0.42, 5, 0.42), trunk],
-		["blob", _M(0, 5.2, 0, 3.0, 2.6, 3.0), leaf],
-		["blob", _M(1.2, 6.6, 0.5, 2.0, 1.8, 2.0), leaf2],
-		["blob", _M(-1.0, 6.2, -0.8, 2.0, 1.8, 2.0), leaf],
-	])
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 0.9
+	# modelli per tipo (0 abete, 1 latifoglia): dettagliato e semplificato
+	var models := [[Foliage.conifer(true), Foliage.conifer(false)], [Foliage.broadleaf(true), Foliage.broadleaf(false)]]
 	var max_each := 4200
 	var counts := [0, 0]
 	var exclusion := []
 	for v in villages:
 		for p in v.placed:
 			exclusion.append(Vector3(p.x, p.y, p.z + 4))
-	var xforms := [[], []]
-	var colors := [[], []]
 	var i := 0
 	while i < 60000 and counts[0] + counts[1] < max_each * 2 - 2:
 		i += 1
@@ -855,31 +898,49 @@ func _build_trees() -> void:
 		var s := 0.8 + rng.next() * 0.8
 		var ry := rng.next() * 6.28
 		var sy := s * (0.85 + rng.next() * 0.35)
-		var idx: int = counts[type]
 		counts[type] += 1
-		xforms[type].append(Transform3D(Basis(Vector3.UP, ry) * Basis.from_scale(Vector3(s, sy, s)), Vector3(x, h, z)))
+		var xf := Transform3D(Basis(Vector3.UP, ry) * Basis.from_scale(Vector3(s, sy, s)), Vector3(x, h, z))
 		var tint := 0.8 + rng.next() * 0.4
-		colors[type].append(Color(tint, tint * (0.95 + rng.next() * 0.1), tint))
-		var tree := {"x": x, "z": z, "y": h, "s": s, "type": type, "idx": idx, "charred": false}
+		var col := Color(tint, tint * (0.95 + rng.next() * 0.1), tint)
+		var tree := {"x": x, "z": z, "y": h, "s": s, "type": type, "xf": xf, "col": col, "charred": false}
 		trees.append(tree)
 		var key := floori(x / 40) * 100003 + floori(z / 40)
 		if not tree_grid.has(key):
 			tree_grid[key] = []
 		tree_grid[key].append(tree)
-	for t in 2:
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.use_colors = true
-		mm.mesh = conifer if t == 0 else broad
-		mm.instance_count = counts[t]
-		for k in counts[t]:
-			mm.set_instance_transform(k, xforms[t][k])
-			mm.set_instance_color(k, colors[t][k])
-		var mmi := MultiMeshInstance3D.new()
-		mmi.multimesh = mm
-		mmi.material_override = mat
-		add_child(mmi)
-		tree_meshes.append(mm)
+	# un blocco per tipo e zona, con il modello dettagliato vicino e quello semplificato lontano
+	var cells := {}
+	for t in trees:
+		var key := Vector3i(floori(t.x / TREE_CELL), floori(t.z / TREE_CELL), t.type)
+		if not cells.has(key):
+			cells[key] = []
+		t.ci = cells[key].size()
+		cells[key].append(t)
+	for key in cells:
+		var list: Array = cells[key]
+		var mms := []
+		for lod in 2:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
+			mm.mesh = models[key.z][lod]
+			mm.instance_count = list.size()
+			for k in list.size():
+				mm.set_instance_transform(k, list[k].xf)
+				mm.set_instance_color(k, list[k].col)
+			var mmi := MultiMeshInstance3D.new()
+			mmi.multimesh = mm
+			if lod == 0:
+				mmi.visibility_range_end = TREE_NEAR
+				mmi.visibility_range_end_margin = 30
+			else:
+				mmi.visibility_range_begin = TREE_NEAR
+				mmi.visibility_range_begin_margin = 30
+			add_child(mmi)
+			mms.append(mm)
+		for t in list:
+			t.mms = mms
+			t.erase("xf")
 
 
 func char_trees(x: float, z: float, r: float, max_n := 30) -> Array:
@@ -894,7 +955,8 @@ func char_trees(x: float, z: float, r: float, max_n := 30) -> Array:
 				if t.charred or (t.x - x) * (t.x - x) + (t.z - z) * (t.z - z) > r * r:
 					continue
 				t.charred = true
-				tree_meshes[t.type].set_instance_color(t.idx, col)
+				for mm in t.mms:
+					mm.set_instance_color(t.ci, col)
 				if tree_fires.size() < 260:
 					tree_fires.append({"x": t.x, "y": t.y + 5 * t.s, "z": t.z, "t": 0.0, "s": t.s, "acc": 0.0, "sacc": 0.0})
 				out.append(t)

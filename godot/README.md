@@ -11,7 +11,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 ```
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
-più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--breathe` tiene premuto il fuoco,
+più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>]` inquadra da vicino una casa, `--breathe` tiene premuto il fuoco,
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -29,8 +29,10 @@ i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore 
 
 ## Texture
 
-Terreno ed edifici usano texture fotografiche CC0 di [Poly Haven](https://polyhaven.com) in `textures/`
-(elenco in `textures/CREDITS.md`). Per riscaricarle, o cambiarle modificando l'elenco nello script:
+Terreno, edifici e cortecce usano materiali PBR CC0 di [Poly Haven](https://polyhaven.com) in `textures/`
+(elenco in `textures/CREDITS.md`): per ognuno colore (`_diff`), normali (`_nor`), occlusione/rugosità (`_arm`)
+e rilievo (`_disp`, usato per il parallasse di tegole e pietra e per fondere i materiali del terreno). All'avvio
+vengono raccolti in array di texture, uno strato per materiale. Per riscaricarle, o cambiarle modificando l'elenco nello script:
 
 ```bash
 node godot/tools/fetch_textures.mjs
@@ -55,13 +57,14 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | --- | --- |
 | `scripts/main.gd` | ciclo di gioco, ambiente, camera in terza persona |
 | `scripts/world.gd` | terreno, villaggi, castello, alberi, incendi |
+| `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
 | `scripts/fx.gd`, `scripts/particles.gd` | particelle, soffio, palle di fuoco, tempesta, esplosioni, luci |
 | `scripts/water.gd` | mare che segue la camera |
 | `scripts/game_input.gd` | tastiera, mouse, joystick e combinazioni |
 | `scripts/hud.gd` | HUD, minimappa, aiuto, schermata iniziale |
-| `shaders/` | terreno, edifici in fiamme, mare, pelle e membrana del drago, particelle |
-| `textures/` | texture fotografiche CC0 (colore e normali) |
+| `shaders/` | terreno, edifici in fiamme, foglie, mare, pelle e membrana del drago, particelle |
+| `textures/` | materiali PBR CC0 (colore, normali, occlusione/rugosità, rilievo) |
 
 ## Non ancora portato
 

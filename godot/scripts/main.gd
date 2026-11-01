@@ -32,6 +32,10 @@ var announced := {}
 var screenshot_path := ""
 var screenshot_t := -1.0
 var test_breathe := false
+var test_closeup := false
+var closeup_pos := Vector3.ZERO
+var closeup_target := Vector3.ZERO
+var closeup_angle := 0.0
 
 
 func _ready() -> void:
@@ -83,6 +87,10 @@ func _ready() -> void:
 			_test_peak.call_deferred()
 		elif arg == "--house":
 			_test_house.call_deferred()
+		elif arg.begins_with("--closeup"):
+			test_closeup = true
+			closeup_angle = float(arg.split("=")[1]) if "=" in arg else 0.0
+			_test_house.call_deferred()
 	print("Mondo: %d villaggi, %d edifici, %d alberi" % [world.villages.size(), world.stats.total, world.trees.size()])
 
 
@@ -102,6 +110,7 @@ func _setup_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.ambient_light_energy = 1.3
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 0.9
 	env.glow_enabled = true
@@ -200,6 +209,10 @@ func _test_house() -> void:
 	dragon.ground_blend = 1
 	dragon.speed = 0
 	cam_offset = -dragon.forward * 30 + Vector3(0, 12, 0)
+	# inquadratura ravvicinata della casa (--closeup)
+	var to := Vector3(SUN_DIR.x, 0, SUN_DIR.z).normalized().rotated(Vector3.UP, closeup_angle)
+	closeup_target = Vector3(b.x, b.base + 4, b.z)
+	closeup_pos = closeup_target + to.rotated(Vector3.UP, 0.5) * 17 + Vector3(0, 3, 0)
 
 
 func current_village_of(p: Vector3):
@@ -460,6 +473,8 @@ func _update_camera(dt: float, c: Dictionary) -> void:
 		var s := fx.shake * 1.6
 		pos += Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5) * s
 	camera.look_at_from_position(pos, target, cam_up)
+	if test_closeup and closeup_pos != Vector3.ZERO:
+		camera.look_at_from_position(closeup_pos, closeup_target, Vector3.UP)
 	var fov := 60 + sf * 16
 	cam_fov = U.damp(cam_fov, fov, 3, dt)
 	camera.fov = cam_fov

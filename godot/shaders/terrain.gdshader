@@ -9,18 +9,11 @@ uniform vec4 villages[12]; // x, z, raggio, tipo (1 villaggio, 2 castello)
 uniform float u_time;
 uniform vec3 focus; // posizione della camera: il rilievo fine sfuma con la distanza
 
-uniform sampler2D grass_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D grass_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D dirt_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D dirt_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D rock_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D rock_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D sand_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D sand_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D snow_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D snow_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D cobble_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D cobble_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+// strati nell'ordine di World.TERRAIN_LAYERS: erba, terra, roccia, sabbia, neve, ciottoli
+uniform sampler2DArray tex_d : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray tex_n : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray tex_arm : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2DArray tex_h : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 
 const float HALF = 3800.0;
 const float STEP = 7600.0 / 480.0;
@@ -104,11 +97,10 @@ void vertex() {
 	v_wpos = vec3(p.x, h, p.y);
 }
 
-// Tinta di grande scala del suolo (era il colore per vertice di colorTerrain): erba, bosco, campi, sabbia
-vec3 ground_tint(vec3 wp, float ny, float n1, float forest_n) {
+// Tinta di grande scala del suolo (era il colore per vertice di colorTerrain): erba, bosco, sabbia
+vec3 ground_tint(vec3 wp, float n1, float forest_n) {
 	vec3 sand = lin(vec3(0.78, 0.71, 0.52)), wet_sand = lin(vec3(0.55, 0.5, 0.38)), seabed = lin(vec3(0.3, 0.33, 0.28));
 	vec3 g1 = lin(vec3(0.24, 0.39, 0.13)), g2 = lin(vec3(0.44, 0.52, 0.2)), forest = lin(vec3(0.16, 0.28, 0.1));
-	vec3 fields[5] = { lin(vec3(0.66, 0.58, 0.33)), lin(vec3(0.38, 0.48, 0.2)), lin(vec3(0.42, 0.36, 0.25)), lin(vec3(0.5, 0.54, 0.27)), lin(vec3(0.6, 0.53, 0.3)) };
 	float y = wp.y;
 	vec3 c;
 	if (y < 3.2) {
@@ -118,64 +110,71 @@ vec3 ground_tint(vec3 wp, float ny, float n1, float forest_n) {
 		c = mix(g1, g2, n1);
 		c = mix(c, forest, ss(0.0, 0.35, forest_n) * 0.8);
 		c = mix(c, sand, ss(6.0, 3.2, y));
-		// campi coltivati intorno ai villaggi
-		for (int i = 0; i < 12; i++) {
-			vec4 v = villages[i];
-			if (v.w < 0.5 || v.w > 1.5) continue;
-			float d = length(wp.xz - v.xy);
-			if (d > v.z + 200.0 || d < v.z * 0.85 || y > 90.0 || ny < 0.93) continue;
-			float ang = atan(wp.z - v.y, wp.x - v.x) + 0.3;
-			// confini dei campi irregolari, come appezzamenti veri
-			float ux = cos(ang) * d + (tvn(wp.xz * 0.03) - 0.5) * 14.0;
-			float uz = sin(ang) * d + (tvn(wp.xz * 0.03 + 9.0) - 0.5) * 10.0;
-			int cell = (int(floor(ux / 40.0)) * 73856093) ^ (int(floor(uz / 28.0)) * 19349663);
-			float edge = min(min(fract(ux / 40.0), 1.0 - fract(ux / 40.0)) * 40.0, min(fract(uz / 28.0), 1.0 - fract(uz / 28.0)) * 28.0);
-			float k = 0.55 * ss(v.z + 200.0, v.z + 140.0, d) * ss(0.5, 3.0, edge);
-			c = mix(c, fields[abs(cell) % 5] * (0.9 + 0.2 * tvn(wp.xz * 0.08)), k);
-		}
 	}
 	return c * (0.88 + n1 * 0.24);
 }
 
-// Campionamento a due scale (dettaglio vicino + scala larga) per nascondere la ripetizione.
-// Restituisce colore e scostamento della normale nel piano orizzontale.
-void tex2(sampler2D d, sampler2D n, vec2 p, float near, float far, float k, out vec3 col, out vec3 nrm) {
-	vec2 a = p / near, b = p / far + 0.37;
-	col = mix(texture(d, a).rgb, texture(d, b).rgb, k);
-	vec3 na = texture(n, a).xyz * 2.0 - 1.0, nb = texture(n, b).xyz * 2.0 - 1.0;
-	vec2 t = mix(na.xy, nb.xy, k);
-	nrm = vec3(t.x, 0.0, -t.y);
+// Campione di un materiale: colore, scostamento della normale (in coordinate mondo), occlusione, rugosità, rilievo
+struct Mat {
+	vec3 col;
+	vec3 off;
+	float ao;
+	float rough;
+	float h;
+};
+
+// Colore medio di uno strato (ultimo livello di mipmap): serve per applicargli la tinta procedurale
+vec3 avg(int i) { return textureLod(tex_d, vec3(0.5, 0.5, float(i)), 12.0).rgb; }
+
+// Campionamento a due scale (dettaglio vicino + scala larga ruotata) per nascondere la ripetizione.
+// proj: piano di proiezione (0 orizzontale, 1 parete verso X, 2 parete verso Z).
+Mat layer2(int i, vec2 p, float near, float k, int proj) {
+	float l = float(i);
+	mat2 R = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	vec3 a = vec3(p / near, l), b = vec3(R * p / (near * 6.5) + 0.37, l);
+	Mat m;
+	m.col = mix(texture(tex_d, a).rgb, texture(tex_d, b).rgb, k);
+	vec2 t = mix(texture(tex_n, a).xy * 2.0 - 1.0, transpose(R) * (texture(tex_n, b).xy * 2.0 - 1.0), k);
+	m.off = proj == 0 ? vec3(t.x, 0.0, -t.y) : (proj == 1 ? vec3(0.0, t.y, t.x) : vec3(t.x, t.y, 0.0));
+	vec3 ra = texture(tex_arm, a).rgb, rb = texture(tex_arm, b).rgb;
+	m.ao = mix(ra.r, rb.r, k);
+	m.rough = mix(ra.g, rb.g, k);
+	m.h = mix(texture(tex_h, a).r, texture(tex_h, b).r, k);
+	return m;
 }
 
-// Colore medio di una texture (ultimo livello di mipmap): serve per applicarle la tinta procedurale
-vec3 avg(sampler2D d) { return textureLod(d, vec2(0.5), 12.0).rgb; }
-
 // Roccia in proiezione triplanare: niente stiramenti sulle pareti verticali
-void rock_tri(vec3 p, vec3 wn, float k, out vec3 col, out vec3 nrm) {
+Mat rock_tri(vec3 p, vec3 wn, float k) {
 	vec3 w = pow(abs(wn), vec3(6.0));
 	w /= w.x + w.y + w.z;
-	vec3 c = vec3(0.0), o = vec3(0.0);
-	float sc = 9.0, sf = 47.0;
-	if (w.x > 0.01) {
-		vec3 c1 = mix(texture(rock_d, p.zy / sc).rgb, texture(rock_d, p.zy / sf + 0.5).rgb, k);
-		vec2 t = mix(texture(rock_n, p.zy / sc).xy, texture(rock_n, p.zy / sf + 0.5).xy, k) * 2.0 - 1.0;
-		c += c1 * w.x;
-		o += vec3(0.0, t.y, t.x) * w.x;
+	Mat r = Mat(vec3(0.0), vec3(0.0), 0.0, 0.0, 0.0);
+	for (int j = 0; j < 3; j++) {
+		float wj = w[j];
+		if (wj < 0.01) continue;
+		Mat s = layer2(2, j == 0 ? p.zy : (j == 1 ? p.xz : p.xy), 9.0, k, j == 0 ? 1 : (j == 1 ? 0 : 2));
+		r.col += s.col * wj;
+		r.off += s.off * wj;
+		r.ao += s.ao * wj;
+		r.rough += s.rough * wj;
+		r.h += s.h * wj;
 	}
-	if (w.y > 0.01) {
-		vec3 c1 = mix(texture(rock_d, p.xz / sc).rgb, texture(rock_d, p.xz / sf + 0.5).rgb, k);
-		vec2 t = mix(texture(rock_n, p.xz / sc).xy, texture(rock_n, p.xz / sf + 0.5).xy, k) * 2.0 - 1.0;
-		c += c1 * w.y;
-		o += vec3(t.x, 0.0, -t.y) * w.y;
-	}
-	if (w.z > 0.01) {
-		vec3 c1 = mix(texture(rock_d, p.xy / sc).rgb, texture(rock_d, p.xy / sf + 0.5).rgb, k);
-		vec2 t = mix(texture(rock_n, p.xy / sc).xy, texture(rock_n, p.xy / sf + 0.5).xy, k) * 2.0 - 1.0;
-		c += c1 * w.z;
-		o += vec3(t.x, t.y, 0.0) * w.z;
-	}
-	col = c;
-	nrm = o;
+	return r;
+}
+
+// Peso di un nuovo strato steso sopra quello attuale: dove il peso è parziale emerge prima dove il suo
+// rilievo supera quello dell'altro (ciuffi d'erba tra la terra, sassi nella sabbia). soft allarga la
+// transizione da lontano, dove il rilievo delle mipmap è ormai uniforme.
+float hblend(float w, float hn, float hc, float soft) {
+	if (w <= 0.0) return 0.0;
+	if (w >= 1.0) return 1.0;
+	return smoothstep(-soft, soft, (w * 2.0 - 1.0) * 1.2 + (hn - hc) * 0.8);
+}
+void mix_in(inout Mat cur, Mat n, float w) {
+	cur.col = mix(cur.col, n.col, w);
+	cur.off = mix(cur.off, n.off, w);
+	cur.ao = mix(cur.ao, n.ao, w);
+	cur.rough = mix(cur.rough, n.rough, w);
+	cur.h = mix(cur.h, n.h, w);
 }
 
 void fragment() {
@@ -189,29 +188,24 @@ void fragment() {
 	float tdist = length(v_wpos - CAMERA_POSITION_WORLD);
 	float tfade = 1.0 / (1.0 + tdist * 0.004);
 	// lontano conta di più la scala larga, così la ripetizione del dettaglio non si vede
-	float kfar = mix(0.3, 0.85, smoothstep(20.0, 400.0, tdist));
+	float kfar = mix(0.25, 0.85, smoothstep(20.0, 400.0, tdist));
+	float soft = mix(0.12, 0.9, smoothstep(40.0, 700.0, tdist));
 	float slope = 1.0 - clamp(wn.y, 0.0, 1.0);
-	float n1 = tfbm(tp * 0.035), n2 = tvn(tp * 0.6);
-	vec3 tint = ground_tint(v_wpos, wn.y, td.g, td.b);
-	// variazioni dell'erba e del suolo: chiazze secche e zone più rigogliose
-	tint *= 0.82 + 0.36 * n1;
-	tint = mix(tint, tint * vec3(1.12, 1.0, 0.7), ss(0.55, 0.8, tvn(tp * 0.012)) * 0.45);
-	tint = mix(tint, tint * vec3(0.8, 0.95, 0.75), ss(0.5, 0.75, tfbm(tp * 0.005 + 7.0)) * 0.4);
-	// chiazze naturali a varie scale (ciuffi, avvallamenti umidi, erba più secca)
-	tint *= 0.8 + 0.4 * tfbm(tp * 0.11 + 3.0);
-	tint = mix(tint, tint * vec3(1.15, 1.05, 0.75), ss(0.55, 0.75, tvn(tp * 0.035 + 5.0)) * 0.35);
+	float n1 = tfbm(tp * 0.035);
+	vec3 tint = ground_tint(v_wpos, td.g, td.b);
+	// variazioni ampie e graduali: prati più secchi o più verdi, senza macchie
+	tint *= 0.92 + 0.16 * tfbm(tp * 0.004);
+	tint = mix(tint, tint * vec3(1.1, 1.03, 0.8), ss(0.45, 0.75, tfbm(tp * 0.0022 + 7.0)) * 0.4);
 
 	// erba (con la tinta procedurale di prati, boschi e campi)
-	vec3 col, nb, c2, n2v;
-	tex2(grass_d, grass_n, tp, 4.0, 29.0, kfar, col, nb);
-	col *= clamp(tint / max(avg(grass_d), vec3(0.01)), 0.0, 3.0);
+	Mat cur = layer2(0, tp, 4.0, kfar, 0);
+	cur.col *= clamp(tint / max(avg(0), vec3(0.01)), 0.0, 3.0);
 	// sabbia sulla riva e sul fondale
 	float sand_w = ss(6.0, 3.2, th);
 	if (sand_w > 0.0) {
-		tex2(sand_d, sand_n, tp, 5.0, 33.0, kfar, c2, n2v);
-		c2 *= clamp(tint / max(avg(sand_d), vec3(0.01)), 0.0, 3.0);
-		col = mix(col, c2, sand_w);
-		nb = mix(nb, n2v, sand_w);
+		Mat s = layer2(3, tp, 5.0, kfar, 0);
+		s.col *= clamp(tint / max(avg(3), vec3(0.01)), 0.0, 3.0);
+		mix_in(cur, s, hblend(sand_w, s.h, cur.h, soft));
 	}
 	// paesi: terra battuta, piazza acciottolata, solchi nei campi
 	float rock_mask = ss(0.3, 0.48, slope + (n1 - 0.5) * 0.2) * step(2.0, th);
@@ -222,53 +216,84 @@ void fragment() {
 		float d = length(tp - v.xy);
 		if (d > vr + 210.0) continue;
 		float paths = ss(0.62, 0.7, tvn(tp * 0.05 + v.xy));
-		float inner = ss(vr, vr * 0.7, d) * clamp(0.45 + 0.4 * n1 + paths * 0.5, 0.0, 0.95);
+		float inner = ss(vr, vr * 0.7, d) * clamp(0.22 + 0.3 * tfbm(tp * 0.02 + v.xy) + paths * 0.55, 0.0, 0.95);
 		if (v.w > 1.5) inner = 0.75 * ss(vr * 0.9, vr * 0.3, d);
 		if (inner > 0.0) {
-			tex2(dirt_d, dirt_n, tp, 3.5, 23.0, kfar, c2, n2v);
-			col = mix(col, c2 * 0.8, inner);
-			nb = mix(nb, n2v, inner);
+			Mat s = layer2(1, tp, 3.5, kfar, 0);
+			s.col *= 0.8;
+			mix_in(cur, s, hblend(inner, s.h, cur.h, soft));
 		}
 		if (v.w > 1.5) continue;
 		float dj = d + (tvn(tp * 0.12) - 0.5) * vr * 0.18;
-		float plaza = ss(vr * 0.36, vr * 0.28, dj) * (0.75 + 0.25 * n1);
+		float plaza = ss(vr * 0.36, vr * 0.28, dj);
 		if (plaza > 0.0) {
-			tex2(cobble_d, cobble_n, tp, 3.0, 3.0, 0.0, c2, n2v);
-			col = mix(col, c2 * 0.7, plaza * 0.95);
-			nb = mix(nb, n2v * 1.5, plaza);
+			Mat s = layer2(5, tp, 3.0, 0.0, 0);
+			s.col *= 0.7;
+			s.off *= 1.5;
+			mix_in(cur, s, hblend(plaza, s.h, cur.h, soft));
 		}
-		float ring = ss(vr * 0.8, vr * 0.95, d) * ss(vr + 210.0, vr + 140.0, d) * (1.0 - rock_mask);
+		// campi coltivati intorno al paese: appezzamenti irregolari di grano, terra arata, ortaggi e prato,
+		// con le file della coltura e siepi sui confini
+		float ring = ss(v.z * 0.85, v.z * 0.95, d) * ss(v.z + 200.0, v.z + 140.0, d) * (1.0 - rock_mask) * step(th, 90.0) * ss(0.9, 0.95, wn.y);
 		if (ring > 0.0) {
-			float ang = atan(tp.y - v.y, tp.x - v.x);
-			vec2 dir = vec2(cos(ang * 7.0), sin(ang * 7.0));
-			col *= 1.0 - ring * 0.14 * (0.5 + 0.5 * sin(dot(tp, dir) * 1.6)) * tfade;
+			float ang = atan(tp.y - v.y, tp.x - v.x) + 0.3;
+			float ux = cos(ang) * d + (tvn(tp * 0.03) - 0.5) * 14.0;
+			float uz = sin(ang) * d + (tvn(tp * 0.03 + 9.0) - 0.5) * 10.0;
+			vec2 cell = floor(vec2(ux / 40.0, uz / 28.0));
+			float hs = th2(cell + v.xy * 0.01);
+			float edge = min(min(fract(ux / 40.0), 1.0 - fract(ux / 40.0)) * 40.0, min(fract(uz / 28.0), 1.0 - fract(uz / 28.0)) * 28.0);
+			float inside = ring * ss(1.2, 3.2, edge + (tvn(tp * 0.4) - 0.5) * 1.2);
+			// file della coltura (sfumano da lontano per non sfarfallare)
+			float rows = (0.5 + 0.5 * sin((fract(hs * 7.3) > 0.5 ? ux : uz) * 2.6)) * (1.0 - ss(120.0, 500.0, tdist));
+			float kind = fract(hs * 13.7);
+			if (kind < 0.3) {
+				// grano maturo
+				vec3 wheat = lin(vec3(0.7, 0.6, 0.31)) * (0.7 + 0.5 * cur.h) * mix(0.9, 1.1, tvn(tp * 0.15));
+				cur.col = mix(cur.col, wheat * (0.85 + 0.2 * rows), inside * 0.8);
+			} else if (kind < 0.5) {
+				// terra arata con i solchi
+				Mat s = layer2(1, tp, 3.5, kfar, 0);
+				s.col *= lin(vec3(0.5, 0.37, 0.23)) / max(avg(1), vec3(0.01)) * (0.75 + 0.35 * rows);
+				mix_in(cur, s, hblend(inside * 0.9, s.h, cur.h, soft));
+			} else if (kind < 0.7) {
+				// ortaggi in file verde scuro
+				cur.col = mix(cur.col, cur.col * vec3(0.75, 0.95, 0.65) * (0.7 + 0.4 * rows), inside * 0.8);
+			} else {
+				// prato da fieno, un po' più secco
+				cur.col = mix(cur.col, cur.col * vec3(1.12, 1.05, 0.8), inside * 0.5);
+			}
+			// siepi e filari sui confini
+			float hedge = ring * (1.0 - ss(0.4, 1.6, edge)) * step(0.35, th2(cell.yx + 3.1));
+			cur.col = mix(cur.col, cur.col * vec3(0.45, 0.6, 0.4), hedge * 0.8);
 		}
 	}
 	// roccia sui pendii ripidi: foto in triplanare, ingrigita, con creste chiare e canaloni scuri
 	if (rock_mask > 0.0) {
-		rock_tri(v_wpos, wn, kfar, c2, n2v);
-		float l = dot(c2, vec3(0.3, 0.59, 0.11));
-		c2 = mix(c2, vec3(l) * vec3(1.0, 0.97, 0.92), 0.55);
+		Mat r = rock_tri(v_wpos, wn, kfar);
+		float l = dot(r.col, vec3(0.3, 0.59, 0.11));
+		r.col = mix(r.col, vec3(l) * vec3(1.0, 0.97, 0.92), 0.55);
 		float cavity = ss(0.25, 0.75, ridged(tp / 42.0));
-		c2 *= mix(0.6, 1.15, cavity) * mix(0.85, 1.12, tfbm(tp * 0.02 + th * 0.01));
+		r.col *= mix(0.6, 1.15, cavity) * mix(0.85, 1.12, tfbm(tp * 0.02 + th * 0.01));
 		// licheni sulle parti meno ripide
-		c2 = mix(c2, c2 * vec3(0.85, 1.05, 0.7), ss(0.6, 0.8, tfbm(tp * 0.05)) * (1.0 - ss(0.5, 0.8, slope)) * 0.6);
-		col = mix(col, c2, rock_mask);
-		nb = mix(nb, n2v * 1.4, rock_mask);
+		r.col = mix(r.col, r.col * vec3(0.85, 1.05, 0.7), ss(0.6, 0.8, tfbm(tp * 0.05)) * (1.0 - ss(0.5, 0.8, slope)) * 0.6);
+		r.off *= 1.4;
+		mix_in(cur, r, hblend(rock_mask, r.h, cur.h, soft));
 	}
 	// neve solo sulle cime più alte, dove la pendenza la trattiene
 	float snow_line = 255.0 + (n1 - 0.5) * 90.0;
 	float snow = ss(snow_line, snow_line + 25.0, th) * (1.0 - ss(0.45, 0.68, slope));
 	snow = max(snow, ss(snow_line + 60.0, snow_line + 110.0, th) * (1.0 - ss(0.66, 0.9, slope)));
 	if (snow > 0.0) {
-		tex2(snow_d, snow_n, tp, 6.0, 41.0, kfar, c2, n2v);
-		col = mix(col, c2 * vec3(0.9, 0.93, 1.0), snow);
-		nb = mix(nb, n2v, snow);
+		Mat s = layer2(4, tp, 6.0, kfar, 0);
+		s.col *= vec3(0.9, 0.93, 1.0);
+		mix_in(cur, s, hblend(snow, s.h, cur.h, soft));
 	}
-	ALBEDO = col;
-	ROUGHNESS = mix(0.95, 0.75, snow);
+	ALBEDO = cur.col;
+	ROUGHNESS = clamp(cur.rough, 0.5, 1.0);
+	AO = cur.ao;
+	AO_LIGHT_AFFECT = 0.15;
 	METALLIC = 0.0;
 	// il rilievo delle texture sfuma con la distanza (lontano resta solo la forma del terreno)
-	float bump = mix(0.55, 0.12, smoothstep(30.0, 900.0, tdist));
-	NORMAL = normalize((VIEW_MATRIX * vec4(wn + nb * bump, 0.0)).xyz);
+	float bump = mix(0.7, 0.12, smoothstep(30.0, 900.0, tdist));
+	NORMAL = normalize((VIEW_MATRIX * vec4(wn + cur.off * bump, 0.0)).xyz);
 }

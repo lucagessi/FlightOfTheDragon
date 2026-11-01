@@ -1,6 +1,7 @@
 // Scarica le texture CC0 da Poly Haven (https://polyhaven.com, licenza CC0) in godot/textures.
 // Uso (dalla radice del repository): node godot/tools/fetch_textures.mjs
-// Per ogni materiale: colore (diff) e normali in convenzione OpenGL (nor_gl), 1K JPG, verificati con l'MD5.
+// Per ogni materiale (1K JPG, verificati con l'MD5): colore (diff), normali in convenzione OpenGL (nor),
+// occlusione/rugosità/metallo (arm) e rilievo (disp, usato per il parallasse e per fondere i materiali del terreno).
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,8 +21,9 @@ const TEXTURES = {
   stone_wall: 'castle_wall_varriation',
   timber: 'rough_wood',
   shutter: 'wood_shutter',
+  bark: 'bark_brown_02',
 };
-const MAPS = { diff: 'Diffuse', nor: 'nor_gl' };
+const MAPS = { diff: 'Diffuse', nor: 'nor_gl', arm: 'arm', disp: 'Displacement' };
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'textures');
 mkdirSync(dir, { recursive: true });

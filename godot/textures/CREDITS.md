@@ -15,3 +15,4 @@ Scaricate con `node godot/tools/fetch_textures.mjs`.
 - stone_wall: https://polyhaven.com/a/castle_wall_varriation
 - timber: https://polyhaven.com/a/rough_wood
 - shutter: https://polyhaven.com/a/wood_shutter
+- bark: https://polyhaven.com/a/bark_brown_02
