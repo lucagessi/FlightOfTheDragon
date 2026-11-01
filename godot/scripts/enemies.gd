@@ -27,6 +27,7 @@ const MAX_GUARDIANS := 5
 var world: World
 var fx: FX
 var hud: HUD
+var audio: GameAudio
 var list: Array = []
 var kills := 0
 var spawn_timer := 0.0
@@ -36,10 +37,11 @@ var on_hostile := Callable() # (nemico, motivo: "village" o "attack")
 var on_calm := Callable() # (nemico)
 
 
-func setup(w: World, f: FX, h: HUD) -> void:
+func setup(w: World, f: FX, h: HUD, a: GameAudio) -> void:
 	world = w
 	fx = f
 	hud = h
+	audio = a
 
 
 # Villaggi senza guardiano
@@ -124,6 +126,7 @@ func damage(e: Dictionary, amount: float) -> void:
 		e.hp = 0.0
 		d.dying = true
 		d.breathing = false
+		audio.roar(0.6)
 
 
 # Danno ad area (esplosioni del giocatore)
@@ -263,7 +266,9 @@ func update_enemies(dt: float, player: Dragon, player_alive: bool) -> Dictionary
 
 		# i draghi lontani non animano corpo e ali (risparmio di calcoli)
 		d.visible = dist < 7000
-		d.update_dragon(dt, ctrl, world, dist < 2500)
+		var ev := d.update_dragon(dt, ctrl, world, dist < 2500)
+		if ev.downstroke and dist < 500:
+			audio.flap(d.power * (1 - dist / 500) * 0.6)
 		if d.breathing:
 			var mo := d.get_mouth()
 			fx.emit_breath(dt, mo[0], mo[1], d.velocity, 0.6, e.acc, 2)

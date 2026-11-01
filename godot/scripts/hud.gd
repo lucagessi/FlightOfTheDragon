@@ -8,6 +8,7 @@ Shift o E   accelera             Q o Z   rallenta
 Spazio / clic sinistro   sputa fuoco (tieni premuto)
 Destro + trascina, rotella   ruota / avvicina la camera
 L   atterra / decolla            I   inverti asse verticale
+M   attiva / disattiva l'audio
 
 JOYSTICK
 Levetta sinistra   vira, sali, scendi     Levetta destra   camera
@@ -161,7 +162,7 @@ func setup(w: World) -> void:
 	ground_hint.visible = false
 	root.add_child(ground_hint)
 
-	var hint := _label("H aiuto · P pausa", 14, Color(1, 1, 1, 0.6))
+	var hint := _label("H aiuto · P pausa · M audio", 14, Color(1, 1, 1, 0.6))
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hint.position = Vector2(24, -36)
 	root.add_child(hint)

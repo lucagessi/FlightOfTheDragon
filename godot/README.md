@@ -59,6 +59,7 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/world.gd` | terreno, villaggi, castello, alberi, incendi |
 | `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
+| `scripts/audio.gd` | audio procedurale: vento, ali, fiamme, mare, incendi, esplosioni, ruggiti |
 | `scripts/enemies.gd` | draghi guardiani: ronda, inseguimento, attacchi, vita e abbattimento |
 | `scripts/fx.gd`, `scripts/particles.gd` | particelle, soffio, palle di fuoco, tempesta, esplosioni, luci |
 | `scripts/water.gd` | mare che segue la camera |
@@ -69,6 +70,6 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 
 ## Non ancora portato
 
-- nuvole, audio, bagliore del sole sullo schermo
+- nuvole, bagliore del sole sullo schermo
 - bruciature sul terreno e detriti delle esplosioni
 - pipeline di rilascio in CI

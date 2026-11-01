@@ -10,6 +10,7 @@ var water: Water
 var dragon: Dragon
 var fx: FX
 var enemies: Enemies
+var audio: GameAudio
 var input: GameInput
 var hud: HUD
 var camera := Camera3D.new()
@@ -54,7 +55,10 @@ func _ready() -> void:
 	water = Water.new()
 	add_child(water)
 	water.setup(world.data_tex)
+	audio = GameAudio.new()
+	add_child(audio)
 	fx = FX.new()
+	fx.audio = audio
 	add_child(fx)
 	fx.setup(world, water)
 	world.fx = fx
@@ -75,7 +79,7 @@ func _ready() -> void:
 	hud.setup(world)
 	enemies = Enemies.new()
 	add_child(enemies)
-	enemies.setup(world, fx, hud)
+	enemies.setup(world, fx, hud, audio)
 	enemies.on_kill = func(e): hud.show_msg("%s abbattuto!" % e.type.name)
 	enemies.on_hostile = _on_hostile
 	enemies.on_calm = func(e): hud.show_msg("%s torna a sorvegliare %s" % [e.type.name, e.home.name], "small")
@@ -180,6 +184,7 @@ func _start_game() -> void:
 	if started:
 		return
 	started = true
+	audio.start()
 	hud.show_game()
 	dragon.throttle = 0.35
 	hud.show_msg("Spicca il volo!")
@@ -263,6 +268,7 @@ func _test_land() -> void:
 
 func _on_explode(pos: Vector3, size: float, owner: String) -> void:
 	var d := pos.distance_to(camera.position)
+	audio.explosion(d)
 	fx.shake = maxf(fx.shake, clampf(1.2 - d / 400, 0, 1) * size)
 	if owner == "player":
 		enemies.splash(pos, 45 * size, 45)
@@ -290,6 +296,7 @@ func _on_hostile(e: Dictionary, reason: String) -> void:
 		hud.show_msg("%s difende %s!" % [e.type.name, e.home.name], "bad")
 	else:
 		hud.show_msg("Hai provocato il %s!" % e.type.name, "bad")
+	audio.roar(maxf(0.25, 1 - e.dragon.position.distance_to(camera.position) / 2500))
 	e.dragon.roaring = 1.5
 
 
@@ -307,6 +314,7 @@ func _damage_player(amount: float) -> void:
 		crashed = false
 		dragon.dying = true
 		dragon.breathing = false
+		audio.roar(0.8)
 		hud.show_msg("Sei stato abbattuto!", "bad")
 
 
@@ -346,6 +354,10 @@ func _handle_actions(actions: Array) -> void:
 		if a == "help":
 			hud.toggle_help()
 			continue
+		if a == "mute":
+			audio.set_muted(not audio.muted)
+			hud.show_msg("Audio disattivato" if audio.muted else "Audio attivato", "small")
+			continue
 		if a == "invert":
 			hud.show_msg("Asse verticale invertito" if input.invert_y else "Asse verticale normale", "small")
 			continue
@@ -365,6 +377,7 @@ func _handle_actions(actions: Array) -> void:
 			"land":
 				if dragon.mode == "ground":
 					if dragon.take_off():
+						audio.whoosh(1.2)
 						hud.show_msg("Decollo!", "small")
 				elif dragon.mode == "air":
 					var r := dragon.land(world)
@@ -405,9 +418,11 @@ func _handle_actions(actions: Array) -> void:
 					hud.show_msg("TEMPESTA DI FUOCO!")
 			"rollLeft", "rollRight":
 				if dragon.start_roll(-1 if a == "rollLeft" else 1):
+					audio.whoosh(1)
 					hud.show_msg("Piroetta!", "small")
 			"loop":
 				if dragon.start_loop():
+					audio.whoosh(1.3)
 					hud.show_msg("Giro della morte!", "small")
 
 
@@ -448,6 +463,7 @@ func _process(delta: float) -> void:
 	dragon.breathing = breathing
 	var ev := dragon.update_dragon(dt, c, world)
 	if ev.touchdown:
+		audio.flap(1.6)
 		fx.shake = maxf(fx.shake, 0.5)
 		_dust(dragon.position, 70, 26)
 		hud.show_msg("A terra", "small")
@@ -478,6 +494,7 @@ func _process(delta: float) -> void:
 	var dx := px - dragon.forward.x * 5
 	var dz := pz - dragon.forward.z * 5
 	if ev.downstroke:
+		audio.flap(minf(1.2, dragon.power))
 		flap_shake = 0.12 * dragon.power
 		if down > 0.08:
 			water.add_pulse(dx, dz, 0.9 * down)
@@ -533,6 +550,13 @@ func _process(delta: float) -> void:
 	flap_shake = maxf(0, flap_shake - dt * 0.8)
 	_update_camera(dt, c)
 	enemies.update_bars(camera)
+
+	# audio
+	var burn_near := 0.0
+	for b in world.nearest_fires(camera.position, 4):
+		burn_near += b.fire / (1 + Vector2(b.x - camera.position.x, b.z - camera.position.z).length() / 120)
+	audio.update_audio(dt, {"speed": dragon.speed, "breathing": breathing,
+		"water": clampf(1 - dragon.altitude / 120, 0, 1) if over_water else 0.0, "burn": burn_near})
 	if started:
 		_update_villages()
 	hud.update_hud(dt, _hud_state())

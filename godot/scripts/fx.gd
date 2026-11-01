@@ -5,6 +5,7 @@ extends Node3D
 
 var world: World
 var water: Water
+var audio: GameAudio
 var fire := ParticleSystem.new()
 var embers := ParticleSystem.new()
 var smoke := ParticleSystem.new()
@@ -113,8 +114,8 @@ func _particle_hit(pos: Vector3, flag: int) -> bool:
 			if r < 0.25:
 				smoke.spawn(Vector3(pos.x, 0.6, pos.z), Vector3((randf() - 0.5) * 4, 4 + randf() * 4, (randf() - 0.5) * 4), 2.5, 3, 14, 1)
 		else:
-			if r < 0.04:
-				world.char_trees(pos.x, pos.z, 9, 3)
+			if r < 0.04 and not world.char_trees(pos.x, pos.z, 9, 3).is_empty():
+				audio.crackle()
 			if r < 0.12:
 				fire.spawn(Vector3(pos.x, g + 1, pos.z), Vector3((randf() - 0.5) * 6, 5 + randf() * 5, (randf() - 0.5) * 6), 0.7, 3, 6, 1)
 			elif r < 0.16:
@@ -160,10 +161,13 @@ func launch_fireball(pos: Vector3, vel: Vector3, size := 2.6, owner := "player")
 	mi.position = pos
 	add_child(mi)
 	fireballs.append({"mesh": mi, "vel": vel, "t": 0.0, "size": size, "acc": 0.0, "owner": owner})
+	if owner == "player":
+		audio.whoosh(0.8)
 
 
 func start_firestorm(dragon: Dragon) -> void:
 	storm = {"t": 0.0, "next": 0.25, "n": 0, "dragon": dragon, "acc": 0.0}
+	audio.roar()
 	shake = maxf(shake, 0.6)
 
 
