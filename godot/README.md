@@ -46,6 +46,9 @@ i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore 
   attraversato a passi, con la base piatta e grigia e le cime gonfie illuminate dal sole. Sotto l'orizzonte il
   cielo ha il colore caldo del terreno al sole: nella luce ambiente fa da rimbalzo e schiarisce i muri in ombra.
   Prato e terra sono opachi (rugosità minima 0,75): col sole basso davanti non luccicano.
+- **Foschia** (`scripts/main.gd`): le distanze sfumano in un velo chiaro e caldo, più fitto in basso
+  (nebbia di altezza), con il bagliore verso il sole; la foschia volumetrica è più densa a terra e si dirada salendo
+  in volo, così dall'alto il paesaggio resta leggibile.
   L'illuminazione globale SDFGI di Godot è stata provata e scartata: scuriva troppo le ombre e costava circa il
   12% dei fotogrammi.
 

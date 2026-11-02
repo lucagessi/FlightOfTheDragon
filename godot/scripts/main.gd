@@ -3,6 +3,7 @@ extends Node3D
 
 # sole: elevazione 17°, azimut 210° (come sky.js)
 const SUN_DIR := Vector3(-0.47815, 0.29237, -0.82818)
+const FOG_DENSITY := 0.0009 # foschia volumetrica a terra (in alto si dirada, vedi _process)
 const DEAD_CTRL := {"steer": 0.0, "climb": 0.0, "throttle": 0.0, "fire": false, "look_x": 0.0, "look_y": 0.15, "zoom": 0.0, "actions": []}
 
 var world: World
@@ -16,6 +17,7 @@ var input: GameInput
 var hud: HUD
 var camera := Camera3D.new()
 var sun := DirectionalLight3D.new()
+var env: Environment
 
 var started := false
 var paused := false
@@ -147,7 +149,7 @@ func _setup_environment() -> void:
 	sky_mat.shader = load("res://shaders/sky.gdshader")
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
-	var env := Environment.new()
+	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -166,14 +168,18 @@ func _setup_environment() -> void:
 	env.adjustment_enabled = true
 	env.adjustment_contrast = 1.12
 	env.adjustment_saturation = 0.95
+	# foschia: le distanze sfumano in un velo chiaro e caldo, più fitto in basso, con il bagliore verso il sole
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.62, 0.72, 0.84)
-	env.fog_density = 0.00008
-	env.fog_aerial_perspective = 0.5
-	env.fog_sky_affect = 0.15
+	env.fog_light_color = Color(0.74, 0.78, 0.84)
+	env.fog_density = 0.0002
+	env.fog_aerial_perspective = 0.4
+	env.fog_sky_affect = 0.2
+	env.fog_sun_scatter = 0.3
+	env.fog_height = 40.0
+	env.fog_height_density = 0.004
 	# foschia volumetrica vicina: raggi di sole tra i monti e bagliore degli incendi nel fumo
 	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.0003
+	env.volumetric_fog_density = FOG_DENSITY
 	env.volumetric_fog_albedo = Color(0.85, 0.9, 1.0)
 	env.volumetric_fog_anisotropy = 0.6
 	env.volumetric_fog_length = 1200
@@ -648,7 +654,10 @@ func _process(delta: float) -> void:
 	water.update_water(dt, camera.position, dx, dz, down)
 	world.update(dt, time, camera.position)
 	world.update_terrain(camera.position)
-	grass.update_grass(camera.position, world.ground_height(camera.position.x, camera.position.z), time)
+	var ground_y := world.ground_height(camera.position.x, camera.position.z)
+	grass.update_grass(camera.position, ground_y, time)
+	# la foschia volumetrica sta in basso: salendo in volo si dirada e il paesaggio resta leggibile
+	env.volumetric_fog_density = FOG_DENSITY * lerpf(1.0, 0.3, smoothstep(30.0, 350.0, camera.position.y - maxf(ground_y, 0.0)))
 	fx.update_fx(dt, camera.position, mouth_pos)
 	fx.shake = maxf(fx.shake, flap_shake)
 	flap_shake = maxf(0, flap_shake - dt * 0.8)
