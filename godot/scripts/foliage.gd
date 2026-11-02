@@ -191,7 +191,7 @@ static func atlas() -> ImageTexture:
 		var d := sqrt(r.next()) * 112.0
 		var c := Vector2(128, 128) + Vector2(cos(a), sin(a)) * d
 		var length := 11.0 + r.next() * 7.0
-		var base := Color(0.27, 0.42, 0.12).lerp(Color(0.42, 0.5, 0.16), r.next() * r.next())
+		var base := Color(0.28, 0.38, 0.16).lerp(Color(0.42, 0.47, 0.22), r.next() * r.next())
 		_leaf(img, c, a + (r.next() - 0.5) * 1.8, length, length * 0.4, base * (0.75 + r.next() * 0.45))
 	# ramo di abete: rachide orizzontale e aghi su due file, più corti verso la punta
 	var x0 := 262.0

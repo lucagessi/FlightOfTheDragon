@@ -74,7 +74,7 @@ float surface(vec2 p) {
 // Tinta di grande scala del suolo (era il colore per vertice di colorTerrain): erba, bosco, sabbia
 vec3 ground_tint(vec3 wp, float n1, float forest_n) {
 	vec3 sand = lin(vec3(0.78, 0.71, 0.52)), wet_sand = lin(vec3(0.55, 0.5, 0.38)), seabed = lin(vec3(0.3, 0.33, 0.28));
-	vec3 g1 = lin(vec3(0.24, 0.39, 0.13)), g2 = lin(vec3(0.44, 0.52, 0.2)), forest = lin(vec3(0.16, 0.28, 0.1));
+	vec3 g1 = lin(vec3(0.27, 0.37, 0.17)), g2 = lin(vec3(0.44, 0.49, 0.27)), forest = lin(vec3(0.18, 0.26, 0.13));
 	float y = wp.y;
 	vec3 c;
 	if (y < 3.2) {

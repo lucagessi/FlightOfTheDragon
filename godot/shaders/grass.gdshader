@@ -122,7 +122,7 @@ void vertex() {
 		vec3 bn = NORMAL;
 		bn.xz = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a))) * bn.xz;
 		NORMAL = normalize(mix(bn, tn, 0.55));
-		v_tint = m.rgb * vec3(1.15, 1.12, 0.82) * (0.85 + 0.3 * rnd(c, 7u)) * (0.9 + 0.2 * COLOR.r);
+		v_tint = m.rgb * vec3(1.12, 1.08, 0.9) * (0.85 + 0.3 * rnd(c, 7u)) * (0.9 + 0.2 * COLOR.r);
 		v_dry = dry + COLOR.g * 0.3;
 	}
 }

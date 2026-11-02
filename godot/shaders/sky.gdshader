@@ -4,7 +4,7 @@
 // mappa si calcola una volta.
 shader_type sky;
 
-uniform vec3 top_color : source_color = vec3(0.17, 0.39, 0.8);
+uniform vec3 top_color : source_color = vec3(0.27, 0.43, 0.68);
 uniform vec3 horizon_color : source_color = vec3(0.7, 0.78, 0.88);
 // sotto l'orizzonte: la luce che il terreno al sole rimanda sui muri (nella mappa della luce ambiente)
 uniform vec3 ground_color : source_color = vec3(0.42, 0.42, 0.33);

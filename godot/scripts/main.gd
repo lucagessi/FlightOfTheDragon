@@ -154,7 +154,7 @@ func _setup_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.ambient_light_energy = 1.3
+	env.ambient_light_energy = 0.65
 	# luce ambiente in parte dal cielo e in parte grigio calda (rimbalzo del suolo): ombre meno blu
 	env.ambient_light_sky_contribution = 0.7
 	env.ambient_light_color = Color(0.66, 0.62, 0.55)
@@ -166,17 +166,17 @@ func _setup_environment() -> void:
 	env.glow_hdr_threshold = 1.4
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.12
-	env.adjustment_saturation = 0.95
+	env.adjustment_contrast = 1.18
+	env.adjustment_saturation = 0.8
 	# foschia: le distanze sfumano in un velo chiaro e caldo, più fitto in basso, con il bagliore verso il sole
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.74, 0.78, 0.84)
 	env.fog_density = 0.0002
 	env.fog_aerial_perspective = 0.4
 	env.fog_sky_affect = 0.2
-	env.fog_sun_scatter = 0.3
+	env.fog_sun_scatter = 0.15
 	env.fog_height = 40.0
-	env.fog_height_density = 0.004
+	env.fog_height_density = 0.0015
 	# foschia volumetrica vicina: raggi di sole tra i monti e bagliore degli incendi nel fumo
 	env.volumetric_fog_enabled = true
 	env.volumetric_fog_density = FOG_DENSITY
@@ -184,7 +184,7 @@ func _setup_environment() -> void:
 	env.volumetric_fog_anisotropy = 0.6
 	env.volumetric_fog_length = 1200
 	env.volumetric_fog_detail_spread = 2.0
-	env.volumetric_fog_ambient_inject = 0.4
+	env.volumetric_fog_ambient_inject = 0.2
 	env.volumetric_fog_sky_affect = 0.0
 	# occlusione ambientale, luce indiretta e riflessi in spazio schermo (il mare riflette isole e drago)
 	env.ssao_enabled = true
@@ -193,7 +193,7 @@ func _setup_environment() -> void:
 	env.ssao_power = 1.5
 	env.ssil_enabled = true
 	env.ssil_radius = 8.0
-	env.ssil_intensity = 0.6
+	env.ssil_intensity = 0.35
 	env.ssr_enabled = true
 	env.ssr_max_steps = 96
 	env.ssr_fade_in = 0.1
@@ -204,7 +204,7 @@ func _setup_environment() -> void:
 	add_child(we)
 	# luce del sole con ombre
 	sun.light_color = Color(1.0, 0.91, 0.78)
-	sun.light_energy = 1.9
+	sun.light_energy = 2.3
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 1500
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS

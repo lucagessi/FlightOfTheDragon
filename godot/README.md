@@ -49,6 +49,11 @@ i dettagli aggiunti alle case (graticcio, imposte, cornici) usano un generatore 
 - **Foschia** (`scripts/main.gd`): le distanze sfumano in un velo chiaro e caldo, più fitto in basso
   (nebbia di altezza), con il bagliore verso il sole; la foschia volumetrica è più densa a terra e si dirada salendo
   in volo, così dall'alto il paesaggio resta leggibile.
+- **Contrasto luce-ombra**: sole più forte, luce ambiente e luce indiretta più deboli, foschia vicina leggera
+  (quella di altezza e il bagliore verso il sole schiarivano le ombre come un velo): le facce in ombra restano scure
+  e la foschia si vede solo in lontananza. Pietra, intonaco e legno riflettono meno il cielo.
+- **Colori realistici**: saturazione generale 0,8, cielo più grigio-azzurro, prato, terreno e foglie verde oliva,
+  tegole rosse e arancio più spente.
   L'illuminazione globale SDFGI di Godot è stata provata e scartata: scuriva troppo le ombre e costava circa il
   12% dei fotogrammi.
 

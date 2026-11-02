@@ -205,6 +205,8 @@ void fragment() {
 	}
 	ALBEDO = mix(col, vec3(0.022, 0.018, 0.016), v_char * 0.93);
 	ROUGHNESS = mix(rough, 0.95, v_char);
+	// pietra, intonaco e legno riflettono poco il cielo: le facce in ombra restano scure
+	SPECULAR = m == 6 ? 0.5 : 0.3;
 	AO = ao;
 	AO_LIGHT_AFFECT = 0.3;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
