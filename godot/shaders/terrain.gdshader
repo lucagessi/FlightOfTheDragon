@@ -203,7 +203,9 @@ void fragment() {
 		mix_in(cur, s, hblend(snow, s.h, cur.h, soft));
 	}
 	ALBEDO = cur.col;
-	ROUGHNESS = clamp(cur.rough, 0.5, 1.0);
+	// prato e terra sono opachi: col sole basso davanti non devono luccicare come un pavimento
+	ROUGHNESS = clamp(cur.rough, 0.75, 1.0);
+	SPECULAR = 0.3;
 	AO = cur.ao;
 	AO_LIGHT_AFFECT = 0.15;
 	METALLIC = 0.0;

@@ -1,11 +1,13 @@
-// Cielo: gradiente dallo zenit all'orizzonte, disco e alone del sole, cumuli procedurali su uno strato a quota
-// fissa (rumore frattale gonfio, illuminati dal lato del sole, con il bordo argentato controluce e la base
-// grigia) che sfumano verso l'orizzonte. Niente TIME: la mappa di riflessi del cielo si calcola una volta.
+// Cielo: gradiente dallo zenit all'orizzonte, disco e alone del sole e cumuli procedurali con volume: uno strato
+// spesso attraversato a passi (base piatta e grigia, cime gonfie e illuminate dal lato del sole, bordo argentato
+// controluce) che sfuma verso l'orizzonte, con meno passi per la mappa della luce ambiente. Niente TIME: quella
+// mappa si calcola una volta.
 shader_type sky;
 
 uniform vec3 top_color : source_color = vec3(0.17, 0.39, 0.8);
 uniform vec3 horizon_color : source_color = vec3(0.7, 0.78, 0.88);
-uniform vec3 ground_color : source_color = vec3(0.1, 0.16, 0.22);
+// sotto l'orizzonte: la luce che il terreno al sole rimanda sui muri (nella mappa della luce ambiente)
+uniform vec3 ground_color : source_color = vec3(0.42, 0.42, 0.33);
 uniform float coverage = 0.6; // quota di cielo coperta dai cumuli
 uniform vec2 cloud_offset = vec2(0.0);
 
@@ -37,9 +39,47 @@ float clouds(vec2 p, float px) {
 }
 
 
+// Cumuli lungo la direzione d: rgb già moltiplicato per la copertura, a = copertura
+vec4 cloud_layer(vec3 d, vec3 sun_dir, vec3 sun_col, float sun_e, int steps) {
+	float y = d.y;
+	vec2 proj = d.xz / (y + 0.3) * 1.8;
+	float px = length(fwidth(proj));
+	vec2 sd = normalize(sun_dir.xz + 1e-4) * 0.25;
+	float cs = dot(d, sun_dir);
+	vec3 shade = mix(vec3(0.5, 0.55, 0.64), horizon_color * 0.9, 0.3);
+	vec3 bright = vec3(1.0, 0.97, 0.93) * (0.75 + 0.35 * sun_col.r / max(sun_e, 0.01));
+	vec3 acc = vec3(0.0);
+	float tr = 1.0;
+	for (int i = 0; i < steps; i++) {
+		// quota nello strato (0 base, 1 cima): più in alto il raggio è più lontano e serve più densità
+		float h = (float(i) + 0.5) / float(steps);
+		vec2 p = proj * (1.0 + h * 0.45) + cloud_offset;
+		float dn = clouds(p, px);
+		float th = 1.0 - coverage + h * 0.2;
+		float s = smoothstep(th, th + 0.07 + px * 2.0, dn);
+		if (s > 0.002) {
+			// luce: quanto la nuvola si assottiglia verso il sole, le parti alte più chiare della base
+			float toward = clouds(p + sd, px);
+			float lit = clamp(0.5 + (dn - toward) * 3.0, 0.0, 1.0) * mix(0.55, 1.08, h);
+			// dove la nuvola è spessa la base resta in ombra
+			lit *= 1.0 - 0.5 * smoothstep(0.0, 0.25, dn - th) * (1.0 - h);
+			vec3 c = mix(shade, bright, clamp(lit, 0.0, 1.0));
+			c += sun_col * pow(max(cs, 0.0), 6.0) * (1.0 - s) * 0.5;
+			float a = s * (steps > 3 ? 0.55 : 0.75);
+			acc += tr * a * c;
+			tr *= 1.0 - a;
+			if (tr < 0.02) break;
+		}
+	}
+	return vec4(acc, 1.0 - tr);
+}
+
+
 void sky() {
 	vec3 d = EYEDIR;
 	float y = d.y;
+	vec3 sun_dir = LIGHT0_DIRECTION;
+	vec3 sun_col = LIGHT0_COLOR * LIGHT0_ENERGY;
 	vec3 col;
 	if (y >= 0.0) {
 		col = mix(horizon_color, top_color, pow(y, 0.45));
@@ -48,30 +88,16 @@ void sky() {
 	} else {
 		col = mix(horizon_color, ground_color, 1.0 - exp(y * 6.0));
 	}
-	vec3 sun_dir = LIGHT0_DIRECTION;
-	vec3 sun_col = LIGHT0_COLOR * LIGHT0_ENERGY;
 	float cs = dot(d, sun_dir);
 	// alone del sole (in foschia più ampio) e disco
 	col += sun_col * (pow(max(cs, 0.0), 24.0) * 0.07 + pow(max(cs, 0.0), 400.0) * 0.5);
 	col += sun_col * smoothstep(0.99985, 0.99995, cs) * 8.0;
-	if (y > 0.0) {
-		// proiezione sullo strato dei cumuli; più lontano, più fitto il rumore e più sottile lo strato
-		vec2 p = d.xz / (y + 0.14) * 0.62 + cloud_offset;
-		float px = length(fwidth(p));
-		float dens = clouds(p, px);
-		float c = smoothstep(1.0 - coverage, 1.0 - coverage + 0.18 + px * 2.0, dens);
-		// luce: quanto la nuvola si assottiglia andando verso il sole
-		vec2 sd = normalize(sun_dir.xz + 1e-4) * 0.25;
-		float toward = clouds(p + sd, px);
-		float lit = clamp(0.55 + (dens - toward) * 3.0, 0.0, 1.0);
-		vec3 shade = mix(vec3(0.52, 0.57, 0.66), horizon_color * 0.9, 0.3);
-		vec3 bright = vec3(1.0, 0.97, 0.93) * (0.75 + 0.35 * sun_col.r / max(LIGHT0_ENERGY, 0.01));
-		vec3 cc = mix(shade, bright, lit);
-		// bordo argentato dove la nuvola è sottile, verso il sole
-		cc += sun_col * pow(max(cs, 0.0), 6.0) * (1.0 - c) * 0.5;
+	if (y > 0.012) {
+		vec4 cl = cloud_layer(d, sun_dir, sun_col, LIGHT0_ENERGY, AT_CUBEMAP_PASS ? 3 : 5);
 		// i cumuli lontani si perdono nella foschia dell'orizzonte
 		float far = smoothstep(0.0, 0.22, y);
-		c *= smoothstep(0.015, 0.09, y);
+		float c = cl.a * smoothstep(0.015, 0.09, y);
+		vec3 cc = cl.rgb / max(cl.a, 1e-4);
 		col = mix(col, mix(horizon_color * 1.05, cc, far), c);
 	}
 	COLOR = col;

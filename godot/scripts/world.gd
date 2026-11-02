@@ -41,6 +41,7 @@ static var COLORS := {
 	"ashlar": U.lin(0.7, 0.67, 0.6),
 	"fence": U.lin(0.36, 0.29, 0.21),
 	"castle_roof": U.lin(0.5, 0.14, 0.12),
+	"roof_rust": U.lin(0.7, 0.4, 0.24),
 	"shutters": [U.lin(0.32, 0.4, 0.3), U.lin(0.45, 0.3, 0.18), U.lin(0.3, 0.36, 0.45), U.lin(0.5, 0.42, 0.3)],
 }
 
@@ -146,6 +147,8 @@ var fx = null
 var burn_image: Image
 var burn_tex: ImageTexture
 var building_material: ShaderMaterial
+var greenery_material: ShaderMaterial
+var greens := Greenery.new() # edera e cespugli del villaggio in costruzione
 var terrain_material: ShaderMaterial
 var terrain_lods: Array[ArrayMesh] = []
 var terrain_chunks: Array[MeshInstance3D] = []
@@ -161,7 +164,7 @@ static func material_of(color: Color) -> int:
 		return 7
 	if color == COLORS.fence:
 		return 3
-	if COLORS.roofs.has(color) or color == COLORS.castle_roof:
+	if COLORS.roofs.has(color) or color == COLORS.castle_roof or color == COLORS.roof_rust:
 		return 1
 	if color == COLORS.stone or color == COLORS.stone_dark:
 		return 2
@@ -189,6 +192,11 @@ func generate() -> void:
 	building_material.set_shader_parameter("burn_tex", burn_tex)
 	building_material.set_shader_parameter("burn_size", float(BURN_TEX_SIZE))
 	set_texture_layers(building_material, BUILDING_LAYERS)
+	greenery_material = ShaderMaterial.new()
+	greenery_material.shader = load("res://shaders/greenery.gdshader")
+	greenery_material.set_shader_parameter("atlas", Foliage.atlas())
+	greenery_material.set_shader_parameter("burn_tex", burn_tex)
+	greenery_material.set_shader_parameter("burn_size", float(BURN_TEX_SIZE))
 	for v in villages:
 		if v.kind == "castle":
 			_build_castle(v)
@@ -507,6 +515,8 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 	var stepped := not timbered and w >= 8.0 and D.rng.next() < (0.85 if wall_col == COLORS.stone else 0.4)
 	# le più grandi hanno un terzo piano (finestre e marcapiani dal generatore dei dettagli)
 	var extra := 1 if stepped and floors == 2 and (big or w >= 10.0) else 0
+	if stepped and D.rng.next() < 0.7:
+		roof_col = COLORS.roof_rust # tegole arancio ruggine, come nelle case signorili
 	if stepped:
 		# facciata più alta (il portale e le finestre in pietra non finiscono sotto la gronda) e tetto più ripido
 		wh += 1.2 + 3.2 * extra
@@ -573,6 +583,7 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 	var win_x := maxf(w / 2 - 1.85, 0.3 * w) if stepped else 0.3 * w
 	# bovindo a graticcio sulla facciata, all'ultimo piano
 	var oriel_f := floors + extra - 1 if stepped and floors + extra >= 2 and D.rng.next() < 0.7 else -1
+	var wide := stepped and w >= 11.0
 	for f in floors + extra:
 		var y := floor_y + 1.2 + f * 3.2
 		var j := jetty if f == 1 else 0.0
@@ -589,6 +600,13 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 			else:
 				_window_trim(D, Transform3D(Basis.IDENTITY, Vector3(sx * win_x, y, d / 2 + j)), shutter)
 				_window_trim(D, Transform3D(Basis(Vector3.UP, PI), Vector3(sx * win_x, y, -d / 2 - j)), shutter)
+		if wide:
+			# facciata larga: terza fila di finestre al centro (davanti sopra il portale)
+			if f > 0:
+				D.p("box", 0, y, d / 2, 1.0, win_h, 0.1, 0, COLORS.window, 1)
+				_window_stone(D, Transform3D(Basis.IDENTITY, Vector3(0, y, d / 2)), win_h, f == 1)
+			D.p("box", 0, y, -d / 2, 1.0, win_h, 0.1, 0, COLORS.window, 1)
+			_window_stone(D, Transform3D(Basis(Vector3.UP, PI), Vector3(0, y, -d / 2)), win_h, false)
 		G.p("box", w / 2, y, 0, 0.1, win_h, 1.0, 0, COLORS.window, 1)
 		G.p("box", -w / 2, y, 0, 0.1, win_h, 1.0, 0, COLORS.window, 1)
 		var side_at := [Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, y, 0))]
@@ -631,7 +649,7 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		for k in range(1, floors + extra):
 			D.p("box", 0, floor_y + 3.2 * k - 0.14, 0, w + 0.14, 0.2, d + 0.14, 0, COLORS.ashlar)
 	if stepped:
-		showcase.append({"b": b, "rot": rot, "d": d, "floor": floor_y, "score": extra * 2 + int(balcony) + int(oriel_f >= 0)})
+		showcase.append({"b": b, "rot": rot, "d": d, "floor": floor_y, "score": extra * 2 + int(balcony) + int(oriel_f >= 0) + int(wide) * 2})
 	if stepped and along_x and rh > 4.2:
 		# abbaino sulla falda della facciata
 		_dormer(D, w * 0.22 if D.rng.next() < 0.5 else -w * 0.22, span, wall_top, rh, roof_col, plaster)
@@ -641,7 +659,59 @@ func _add_house(B: GeoBuilder, x: float, z: float, rot: float, village, big := f
 		var fx := w / 2 + 1.2
 		_fence(D, x, z, rot, [Vector2(-fx, -d * 0.1), Vector2(-fx, fz), Vector2(door_x - 1.0, fz)])
 		_fence(D, x, z, rot, [Vector2(door_x + 1.0, fz), Vector2(fx, fz), Vector2(fx, -d * 0.1)])
+	_house_greenery(D, b, x, z, rot, w, d, floor_y, wall_top, door_x, win_x, win_h, floors + extra, wall_col, timbered, stepped, balcony, oriel_f)
 	return Vector2(w, d).length() / 2
+
+
+# Edera su uno o due muri (più spesso sulla pietra), lontano da porte e finestre, e qualche cespuglio davanti
+func _house_greenery(D: PartMaker, b: Building, x: float, z: float, rot: float, w: float, d: float, floor_y: float, wall_top: float, door_x: float, win_x: float, win_h: float, nf: int, wall_col: Color, timbered: bool, stepped: bool, balcony: bool, oriel_f: int) -> void:
+	var r := D.rng
+	var chance := 0.2 if timbered else (0.8 if wall_col == COLORS.stone else 0.45)
+	if r.next() < chance:
+		# pareti: sistema locale, lunghezza e aperture (u, y) — davanti la porta, dietro e sui fianchi le finestre
+		var walls := []
+		var front := []
+		var back := []
+		var side := []
+		for f in nf:
+			var y := floor_y + 1.2 + f * 3.2
+			var top := win_h + (0.7 if stepped and f == 1 else 0.35)
+			for sx in [-1.0, 1.0]:
+				front.append(Rect2(sx * win_x - 0.75, y - 0.3, 1.5, top + 0.3))
+				back.append(Rect2(sx * win_x - 0.75, y - 0.3, 1.5, top + 0.3))
+			side.append(Rect2(-0.75, y - 0.3, 1.5, top + 0.3))
+			if f == oriel_f:
+				front.append(Rect2(win_x - 1.55, y - 2.0, 2.7, 3.8))
+		front.append(Rect2(door_x - 1.2, floor_y - 1.0, 2.4, 4.0))
+		if stepped and w >= 11.0:
+			# finestre centrali delle facciate larghe
+			for f in nf:
+				var y := floor_y + 1.2 + f * 3.2
+				front.append(Rect2(-0.75, y - 0.3, 1.5, win_h + 1.0))
+				back.append(Rect2(-0.75, y - 0.3, 1.5, win_h + 1.0))
+		if not timbered:
+			walls.append([Transform3D(Basis.IDENTITY, Vector3(0, 0, d / 2)), w, front])
+		walls.append([Transform3D(Basis(Vector3.UP, PI), Vector3(0, 0, -d / 2)), w, back])
+		walls.append([Transform3D(Basis(Vector3.UP, PI / 2), Vector3(w / 2, 0, 0)), d, side])
+		if not balcony:
+			walls.append([Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-w / 2, 0, 0)), d, side])
+		var patches := 2 if r.next() < 0.3 else 1
+		for k in patches:
+			var wl: Array = walls[int(r.next() * walls.size())]
+			var length: float = wl[1]
+			var width := minf(2.2 + r.next() * 2.2, length * 0.65)
+			var u0 := (length / 2 - width * 0.3) * (1.0 if r.next() < 0.5 else -1.0)
+			var top := floor_y + (wall_top - floor_y) * (0.55 + r.next() * 0.5)
+			greens.ivy(D.frame, wl[0], b.id, u0, width, floor_y - 0.7, minf(top, wall_top - 0.15), -length / 2, length / 2, wl[2], r)
+	# cespugli lungo la facciata, ai lati della porta
+	var n := 1 + int(r.next() * (4.0 if stepped else 3.0))
+	for k in n:
+		var u := (r.next() * 2.0 - 1.0) * (w / 2 + 0.3)
+		if absf(u - door_x) < 1.4:
+			continue
+		var lz := d / 2 + 0.5 + r.next() * 0.5
+		var wp := _local_to_world(x, z, rot, u, lz)
+		greens.bush(Vector3(wp.x, ground_height(wp.x, wp.y) - 0.1, wp.y), 0.6 + r.next() * 0.6, b.id, r)
 
 
 # Frontone a gradoni in pietra (sistema at: colmo lungo X, timpano sul piano x = gx, falde verso ±Z): strati
@@ -1101,6 +1171,9 @@ func _add_mesh(B: GeoBuilder) -> void:
 	mi.mesh = B.build()
 	mi.material_override = building_material
 	add_child(mi)
+	if not greens.is_empty():
+		add_child(greens.build(greenery_material))
+		greens = Greenery.new()
 
 
 # ---------------- ALBERI ----------------

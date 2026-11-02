@@ -47,6 +47,9 @@ var closeup_pos := Vector3.ZERO
 var closeup_target := Vector3.ZERO
 var closeup_angle := 0.0
 var closeup_dist := 11.0
+var test_burn_house := false # --burnhouse: con --closeup incendia la casa inquadrata
+var test_lookup := false # --lookup: con --closeup guarda in alto, sopra la casa (per il cielo)
+var test_backlit := false # --backlit: con --closeup sceglie una casa con la facciata in controluce
 
 
 func _ready() -> void:
@@ -119,6 +122,12 @@ func _ready() -> void:
 			_test_guardian.call_deferred()
 		elif arg == "--nohud":
 			hud.visible = false
+		elif arg == "--burnhouse":
+			test_burn_house = true
+		elif arg == "--lookup":
+			test_lookup = true
+		elif arg == "--backlit":
+			test_backlit = true
 		elif arg == "--house":
 			_test_house.call_deferred()
 		elif arg.begins_with("--closeup"):
@@ -155,8 +164,8 @@ func _setup_environment() -> void:
 	env.glow_hdr_threshold = 1.4
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.06
-	env.adjustment_saturation = 1.1
+	env.adjustment_contrast = 1.12
+	env.adjustment_saturation = 0.95
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.62, 0.72, 0.84)
 	env.fog_density = 0.00008
@@ -246,6 +255,9 @@ func _test_house() -> void:
 	var show = null
 	for h in world.showcase:
 		var dd: float = Vector2(h.b.x - dragon.position.x, h.b.z - dragon.position.z).length() - h.score * 5000.0
+		if test_backlit:
+			# facciata rivolta dalla parte opposta al sole: in ombra, con il cielo luminoso dietro
+			dd += Vector2(sin(h.rot), cos(h.rot)).dot(Vector2(SUN_DIR.x, SUN_DIR.z).normalized()) * 20000.0
 		if dd < best:
 			best = dd
 			show = h
@@ -289,6 +301,10 @@ func _test_house() -> void:
 				break
 		closeup_pos = eye if eye != Vector3.ZERO else door + front * closeup_dist + Vector3(0, 1.7, 0)
 		closeup_target = door + Vector3(0, 3.8, 0) - side * 0.8
+	if test_burn_house:
+		world.ignite(b)
+	if test_lookup:
+		closeup_target += Vector3(0, 16, 0)
 
 
 # Per le verifiche: di fronte al guardiano più vicino, già ostile

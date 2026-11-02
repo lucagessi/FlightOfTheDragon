@@ -157,6 +157,24 @@ void fragment() {
 			// sporco che risale dal basso, macchie d'umidità e colature
 			col *= mix(0.68, 1.0, smoothstep(0.3, 2.4, wy)) * (0.88 + 0.16 * bvn(bp.xz * 0.4 + bp.y * 0.3 + v_seed));
 			col *= 1.0 - 0.12 * smoothstep(0.55, 0.9, bvn(vec2(dot(bp, t) * 2.5, bp.y * 0.15) + v_seed));
+			col = mix(col, col * vec3(0.78, 0.84, 0.7), smoothstep(1.6, 0.2, wy) * 0.6);
+			// intonaco scrostato: chiazze dai bordi frastagliati (più frequenti in basso) che scoprono la
+			// muratura di pietra, con il bordo dell'intonaco in ombra
+			vec2 wq = vec2(dot(bp, t), bp.y);
+			float flake = bvn(wq * 0.55 + v_seed * 1.7) * 0.65 + bvn(wq * 2.3 + v_seed) * 0.25 + bvn(wq * 9.0) * 0.1;
+			flake += 0.12 * smoothstep(2.5, 0.0, wy) - 0.04;
+			float bare = smoothstep(0.66, 0.68, flake) * (1.0 - smoothstep(30.0, 60.0, dist)) * step(abs(bn.y), 0.5);
+			col *= 1.0 - 0.3 * smoothstep(0.6, 0.66, flake);
+			if (bare > 0.0) {
+				vec2 suv = wq / SCALE[2];
+				vec2 sdx = dFdx(suv), sdy = dFdy(suv);
+				vec3 sd = textureGrad(tex_d, vec3(suv, 2.0), sdx, sdy).rgb / max(textureLod(tex_d, vec3(0.5, 0.5, 2.0), 12.0).rgb, vec3(0.02));
+				vec3 scol = vec3(dot(sd, vec3(0.3, 0.59, 0.11))) * vec3(0.3, 0.28, 0.25);
+				vec2 snt = textureGrad(tex_n, vec3(suv, 2.0), sdx, sdy).xy * 2.0 - 1.0;
+				col = mix(col, scol, bare);
+				nt = mix(nt, snt * 1.4, bare);
+				ao = mix(ao, textureGrad(tex_arm, vec3(suv, 2.0), sdx, sdy).r, bare);
+			}
 		} else if (m == 1 || m == 5) {
 			// tegole diverse una dall'altra, muschio sulle falde e bordi anneriti
 			float lum = dot(col, vec3(0.3, 0.59, 0.11));
@@ -170,10 +188,17 @@ void fragment() {
 			// pietra grigia con poche venature calde (la foto è bruna), più scura e umida alla base,
 			// con colature sotto davanzali e cornici
 			float lum = dot(col, vec3(0.3, 0.59, 0.11));
-			col = mix(vec3(lum) * vec3(1.03, 1.0, 0.95), col, 0.3);
-			col = mix(tint, col, 0.6) * 1.3; // meno contrasto tra pietre e malta
+			col = mix(vec3(lum) * vec3(1.04, 1.0, 0.93), col, 0.45);
+			col = mix(tint, col, 0.85) * 1.05; // pietre grigio-brune con le fughe scure, come nella foto
 			col *= mix(0.8, 1.0, smoothstep(0.0, 2.2, wy));
 			col *= 1.0 - 0.18 * smoothstep(0.6, 0.95, bvn(vec2(dot(bp, t) * 1.8, bp.y * 0.12) + v_seed));
+			// muschio verde nelle fughe e sulle pietre in basso, licheni giallastri sparsi più in alto
+			float damp = smoothstep(1.8, 0.0, wy) * smoothstep(0.4, 0.75, bvn(vec2(dot(bp, t), bp.y) * 0.9 + v_seed) * 0.7 + bvn(vec2(dot(bp, t), bp.y) * 3.7) * 0.3);
+			float moss = clamp(damp * 1.6 - arm.r * 0.5, 0.0, 1.0);
+			col = mix(col, vec3(0.06, 0.08, 0.03), moss * 0.6);
+			float lichen = smoothstep(0.72, 0.8, bvn(vec2(dot(bp, t), bp.y) * 1.3 + v_seed * 2.3)) * smoothstep(1.5, 4.0, wy);
+			col = mix(col, col * vec3(1.15, 1.1, 0.7), lichen * 0.6);
+			rough = mix(rough, 0.95, moss);
 		}
 		float bump = BUMP[m] * (1.0 - v_char * 0.5) * mix(1.0, 0.5, smoothstep(40.0, 200.0, dist));
 		wn = normalize(bn + (t * nt.x + b * nt.y) * 0.6 * bump);
