@@ -138,6 +138,7 @@ var tree_fires: Array = []
 var stats := {"total": 0, "burning": 0, "destroyed": 0}
 var villages: Array = []
 var fortress: Fortress
+var lair: Lair
 var showcase: Array = [] # case signorili (frontoni a gradoni) per le inquadrature di prova
 var trees: Array = []
 var tree_grid := {}
@@ -206,8 +207,12 @@ func generate() -> void:
 	fortress.name = "Fortress"
 	add_child(fortress)
 	fortress.build(self)
+	lair = Lair.new()
+	lair.name = "Lair"
+	add_child(lair)
 	stats.total = buildings.size() - 1
 	_build_trees()
+	lair.build(self)
 	smooth_ground = true
 
 
@@ -361,7 +366,7 @@ func _build_terrain_mesh() -> void:
 			mi.mesh = terrain_lods[LOD_SEGS.size() - 1]
 			mi.material_override = terrain_material
 			mi.position = Vector3(-HALF + (i + 0.5) * size, 0, -HALF + (j + 0.5) * size)
-			mi.custom_aabb = AABB(Vector3(-size / 2, SEABED - 30, -size / 2), Vector3(size, 560, size))
+			mi.custom_aabb = AABB(Vector3(-size / 2, SEABED - 30, -size / 2), Vector3(size, 1800, size))
 			add_child(mi)
 			terrain_chunks.append(mi)
 
@@ -1227,8 +1232,10 @@ func _build_trees() -> void:
 		if not tree_grid.has(key):
 			tree_grid[key] = []
 		tree_grid[key].append(tree)
-	# niente alberi dentro mura, torri e mastio della fortezza (filtrati dopo, per non cambiare il resto del bosco)
-	trees = trees.filter(func(t): return not fortress.covers(t.x, t.z))
+	# la vetta della tana alza il terreno dopo la semina, così il resto del bosco non cambia: via gli alberi rimasti
+	# sotto il nuovo suolo, e quelli dentro mura, torri e mastio della fortezza
+	lair.shape_terrain(self)
+	trees = trees.filter(func(t): return not fortress.covers(t.x, t.z) and absf(ground_height(t.x, t.z) - t.y) < 0.5)
 	tree_grid.clear()
 	for t in trees:
 		var key := floori(t.x / 40) * 100003 + floori(t.z / 40)
@@ -1325,15 +1332,44 @@ func ignite(b: Building, delay := 0.0) -> bool:
 	if b == null or b.inert or b.state != 0:
 		return false
 	b.state = 1
-	b.t = -delay
+	# una casa già spenta dal ghiaccio riprende da quanto era annerita
+	b.t = -delay if b.charred <= 0.0 else minf(b.charred * 24.0, 15.0)
 	burning.append(b)
 	return true
+
+
+# Il ghiaccio spegne una casa in fiamme: resta annerita com'è e si può riaccendere
+func extinguish(b: Building) -> bool:
+	if b == null or b.inert or b.fire <= 0.02 or not burning.has(b):
+		return false
+	burning.erase(b)
+	b.fire = 0.0
+	if b.state == 1:
+		b.state = 0
+	_write_burn(b)
+	burn_tex.update(burn_image)
+	return true
+
+
+# Spegne case e alberi in fiamme entro r metri; restituisce quanti fuochi ha spento
+func extinguish_near(x: float, z: float, r: float) -> int:
+	var n := 0
+	for b in buildings_near(x, z, r):
+		if extinguish(b):
+			n += 1
+	for i in range(tree_fires.size() - 1, -1, -1):
+		var f = tree_fires[i]
+		if Vector2(f.x - x, f.z - z).length() < r + 4.0:
+			tree_fires.remove_at(i)
+			n += 1
+	return n
 
 
 func update(dt: float, t_now: float, cam_pos: Vector3) -> void:
 	time = t_now
 	building_material.set_shader_parameter("u_time", t_now)
 	terrain_material.set_shader_parameter("u_time", t_now)
+	lair.update_lair(dt, t_now, cam_pos)
 	var dirty := false
 	var burning_count := 0
 	for i in range(burning.size() - 1, -1, -1):

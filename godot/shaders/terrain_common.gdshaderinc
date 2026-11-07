@@ -61,9 +61,20 @@ float ridged(vec2 p) {
 	}
 	return s;
 }
+// Letto del ruscello della tana (maschera da scripts/lair.gd): 1 al centro, 0 oltre le sponde
+uniform sampler2D stream_tex : filter_linear, repeat_disable;
+uniform vec4 stream_box = vec4(0.0, 0.0, 1.0, 0.0); // origine (x, z), lato, 1 se c'è il ruscello
+float stream_mask(vec2 p) {
+	if (stream_box.w < 0.5) return 0.0;
+	vec2 uv = (p - stream_box.xy) / stream_box.z;
+	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
+	return textureLod(stream_tex, uv, 0.0).r;
+}
+
 float rock_detail(vec2 p, vec3 hg) {
 	float slope = 1.0 - inversesqrt(1.0 + hg.y * hg.y + hg.z * hg.z);
 	float amp = smoothstep(0.12, 0.4, slope) * smoothstep(6.0, 30.0, hg.x) * (1.0 - smoothstep(1100.0, 2200.0, length(p - focus.xz)));
+	amp *= 1.0 - stream_mask(p);
 	return amp > 0.001 ? (ridged(p / 42.0) - 0.45) * 9.0 * amp : 0.0;
 }
 float surface(vec2 p) {

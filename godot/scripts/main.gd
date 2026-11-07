@@ -40,10 +40,12 @@ var cam_fov := 62.0
 var cam_dist := 34.0
 var current_village = null
 var was_in_fortress := false
+var was_in_lair := false
 var announced := {}
 var screenshot_path := ""
 var screenshot_t := -1.0
 var test_breathe := false
+var test_ice_t := -1.0 # --ice=<secondi>: dopo quei secondi soffia ghiaccio
 var test_closeup := false
 var closeup_pos := Vector3.ZERO
 var closeup_target := Vector3.ZERO
@@ -99,6 +101,11 @@ func _ready() -> void:
 	fx.on_ignite = _on_ignite
 	world.fortress.setup(fx, hud, audio)
 	world.fortress.on_player_damage = _damage_player
+	world.lair.on_lit = func(n: int, total: int):
+		if n == total:
+			hud.show_msg("Tutte le lanterne della tana sono accese!")
+		else:
+			hud.show_msg("Lanterne accese: %d su %d" % [n, total], "small")
 	# --screenshot=<file> [--shot-time=<s>]: salva un'immagine e chiude (per le verifiche)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--screenshot="):
@@ -112,6 +119,8 @@ func _ready() -> void:
 			_burn_nearest.call_deferred()
 		elif arg == "--breathe":
 			test_breathe = true
+		elif arg.begins_with("--ice"):
+			test_ice_t = float(arg.split("=")[1]) if "=" in arg else 0.0
 		elif arg == "--novsync":
 			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		elif arg == "--land":
@@ -120,6 +129,8 @@ func _ready() -> void:
 			_test_peak.call_deferred()
 		elif arg.begins_with("--fortress"):
 			_test_fortress.call_deferred(arg.split("=")[1] if "=" in arg else "")
+		elif arg.begins_with("--lair"):
+			_test_lair.call_deferred(arg.split("=")[1] if "=" in arg else "")
 		elif arg == "--guardian":
 			_test_guardian.call_deferred()
 		elif arg == "--nohud":
@@ -313,6 +324,73 @@ func _test_house() -> void:
 		closeup_target += Vector3(0, 16, 0)
 
 
+# Per le verifiche: alla tana del drago. view: "" in volo verso la bocca, "far" il monte da lontano, "plateau" lo
+# spiazzo, "eggs" i nidi da vicino, "in" dentro dalla bocca (buio), "lit" lo stesso con le lanterne accese,
+# "treasure" il tesoro
+func _test_lair(view := "") -> void:
+	var L := world.lair
+	var out := Vector3(Lair.MOUTH_DIR.x, 0, Lair.MOUTH_DIR.y).normalized()
+	var mouth := L.frame * Vector3(-Lair.A, 0, 0)
+	if view == "lit" or view == "treasure" or view == "top":
+		for l in L.lanterns:
+			L.heat(l.pos, 1.0)
+	var spot := {"": Vector3(-650, 60, 0), "far": Vector3(-260, 40, 30), "plateau": Vector3(-200, 0, 12),
+		"eggs": Vector3(-200, 0, 12), "in": Vector3(-110, 0, -30), "fly": Vector3(-150, 32, 6), "lit": Vector3(-110, 0, -30), "treasure": Vector3(30, 0, -20), "top": Vector3(30, 0, -20), "south": Vector3(-260, 40, 30), "stream": Vector3(-260, 40, 30)}
+	var p: Vector3 = L.frame * spot.get(view, spot[""])
+	dragon.position = p
+	dragon.yaw = atan2(L.cc.x - p.x, L.cc.z - p.z)
+	if view == "fly":
+		# in volo dentro la grotta verso il fondo (con --breathe accende le lanterne lungo la strada)
+		dragon.throttle = 0.0
+		dragon.speed = 30
+		cam_offset = -dragon.forward * 30 + Vector3(0, 8, 0)
+		return
+	if view == "":
+		dragon.yaw = atan2(mouth.x - p.x, mouth.z - p.z)
+		dragon.throttle = 0.1
+		dragon.speed = 40
+		return
+	if view == "far" or view == "south" or view == "stream":
+		dragon.speed = 40
+	else:
+		dragon.position.y = world.ground_height(p.x, p.z) + Dragon.STAND
+		dragon.mode = "ground"
+		dragon.ground_blend = 1
+		dragon.speed = 0
+	test_closeup = true
+	match view:
+		"far":
+			closeup_pos = mouth + out * 950 + Vector3(out.z, 0, -out.x) * 420 + Vector3(0, 60, 0)
+			closeup_target = L.cc + Vector3(0, 10, 0)
+		"plateau":
+			closeup_pos = L.frame * Vector3(-315, 20, 48)
+			closeup_target = L.frame * Vector3(-160, 22, -12)
+		"eggs":
+			closeup_pos = L.frame * Vector3(-262, 5, 82)
+			closeup_target = L.frame * Vector3(-226, 1, 50)
+		"in", "lit":
+			closeup_pos = L.frame * Vector3(-138, 16, 8)
+			closeup_target = L.frame * Vector3(90, 8, 0)
+		"stream":
+			# lungo il ruscello, a metà discesa, guardando verso valle
+			var k := L.stream.size() * 2 / 5
+			var sp: Vector3 = L.stream[k]
+			var down: Vector3 = (L.stream[mini(k + 6, L.stream.size() - 1)] - sp).normalized()
+			closeup_pos = sp - down * 70.0 + Vector3(down.z, 0, -down.x) * 30.0
+			closeup_pos.y = maxf(sp.y + 45.0, world.ground_height(closeup_pos.x, closeup_pos.z) + 25.0)
+			closeup_target = sp + down * 80.0
+		"south":
+			var south := L.summit - L.side * 1500.0 - L.axis * 300.0
+			closeup_pos = Vector3(south.x, 520.0, south.y)
+			closeup_target = Vector3(L.summit.x - L.side.x * 300.0, 450.0, L.summit.y - L.side.y * 300.0)
+		"top":
+			closeup_pos = L.frame * Vector3(40, 45, 30)
+			closeup_target = L.frame * Vector3(100, 0, 0)
+		"treasure":
+			closeup_pos = L.frame * Vector3(62, 5, 26)
+			closeup_target = L.frame * Vector3(104, 5, -4)
+
+
 # Per le verifiche: di fronte al guardiano più vicino, già ostile
 func _test_guardian() -> void:
 	_start_game()
@@ -476,7 +554,9 @@ func _handle_actions(actions: Array) -> void:
 			continue
 		match a:
 			"land":
-				if dragon.mode == "ground":
+				if dragon.mode == "ground" and world.lair.inside(dragon.position):
+					hud.show_msg("Nella grotta si va a piedi: esci per volare", "small")
+				elif dragon.mode == "ground":
 					if dragon.take_off():
 						audio.whoosh(1.2)
 						hud.show_msg("Decollo!", "small")
@@ -558,16 +638,25 @@ func _process(delta: float) -> void:
 	if test_breathe:
 		c = c.duplicate()
 		c.fire = true
+	if test_ice_t >= 0.0 and time > test_ice_t:
+		c = c.duplicate()
+		c.ice = true
 	# mira assistita sul drago nemico più vicino davanti (solo in volo)
 	var aim = enemies.target(dragon) if started and player_alive and not grounded else null
 	var post = world.fortress.target(dragon) if started and player_alive and not grounded and aim == null else null
 	if not grounded:
 		dragon.aim_target = aim.dragon.position if aim != null else (post.pos + Vector3(0, 2, 0) if post != null else null)
 
-	# soffio di fuoco
+	# soffio di fuoco o di ghiaccio (stessa energia)
 	var breathing: bool = started and player_alive and c.fire and energy > 1
-	dragon.breathing = breathing
+	var icing: bool = started and player_alive and c.get("ice", false) and not c.fire and energy > 1
+	dragon.breathing = breathing or icing
+	dragon.frost = icing
 	var ev := dragon.update_dragon(dt, c, world)
+	# nella grotta della tana si va solo a piedi: chi entra in volo atterra
+	if dragon.mode == "air" and not dragon.dying and world.lair.inside(dragon.position):
+		if dragon.land(world, true) == "ok":
+			hud.show_msg("Nella grotta si va a piedi", "small")
 	if ev.touchdown:
 		audio.flap(1.6)
 		fx.shake = maxf(fx.shake, 0.5)
@@ -587,8 +676,13 @@ func _process(delta: float) -> void:
 			if not e.dragon.dying and Enemies.in_breath(m[0], dir, e.dragon.position, 8 * e.type.scale / 0.5):
 				enemies.damage(e, 34 * dt)
 		world.fortress.breath_hit(m[0], dir, dt)
+	elif icing:
+		energy = maxf(0, energy - dt * 22)
+		var m := dragon.get_mouth()
+		mouth_pos = m[0]
+		fx.emit_frost(dt, m[0], dragon.aim_dir if dragon.mode == "ground" else m[1], dragon.velocity)
 	else:
-		energy = minf(100, energy + dt * (0.0 if c.fire else 14.0))
+		energy = minf(100, energy + dt * (0.0 if c.fire or c.get("ice", false) else 14.0))
 	storm_cd = maxf(0, storm_cd - dt)
 	fireball_cd = maxf(0, fireball_cd - dt)
 
@@ -658,6 +752,13 @@ func _process(delta: float) -> void:
 	grass.update_grass(camera.position, ground_y, time)
 	# la foschia volumetrica sta in basso: salendo in volo si dirada e il paesaggio resta leggibile
 	env.volumetric_fog_density = FOG_DENSITY * lerpf(1.0, 0.3, smoothstep(30.0, 350.0, camera.position.y - maxf(ground_y, 0.0)))
+	# nella grotta della tana non arriva la luce del cielo: la foschia si accende solo delle lanterne
+	var cave := world.lair.darkness(camera.position)
+	env.ambient_light_energy = lerpf(0.65, 0.03, cave)
+	env.volumetric_fog_ambient_inject = lerpf(0.2, 0.0, cave)
+	env.volumetric_fog_density = lerpf(env.volumetric_fog_density, 0.0008, cave)
+	env.tonemap_exposure = lerpf(0.9, 1.3, cave)
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED if cave > 0.6 else Environment.REFLECTION_SOURCE_SKY
 	fx.update_fx(dt, camera.position, mouth_pos)
 	fx.shake = maxf(fx.shake, flap_shake)
 	flap_shake = maxf(0, flap_shake - dt * 0.8)
@@ -668,7 +769,7 @@ func _process(delta: float) -> void:
 	var burn_near := 0.0
 	for b in world.nearest_fires(camera.position, 4):
 		burn_near += b.fire / (1 + Vector2(b.x - camera.position.x, b.z - camera.position.z).length() / 120)
-	audio.update_audio(dt, {"speed": dragon.speed, "breathing": breathing,
+	audio.update_audio(dt, {"speed": dragon.speed, "breathing": breathing or icing,
 		"water": clampf(1 - dragon.altitude / 120, 0, 1) if over_water else 0.0, "burn": burn_near})
 	if started:
 		_update_villages()
@@ -694,6 +795,10 @@ func _update_villages() -> void:
 	if in_fort and not was_in_fortress:
 		hud.show_banner(Fortress.TITLE, "caduta" if fort.fallen else ("all'attacco" if fort.awake else "dormiente · %d postazioni" % fort.alive_count()))
 	was_in_fortress = in_fort
+	var in_lair := Vector2(dragon.position.x - Lair.PEAK.x, dragon.position.z - Lair.PEAK.y).length() < 400 and dragon.position.y > Lair.FLOOR - 150
+	if in_lair and not was_in_lair:
+		hud.show_banner("La tana del drago", "lanterne accese: %d su %d" % [world.lair.lit_count, world.lair.lanterns.size()])
+	was_in_lair = in_lair
 	if near != null and near != current_village:
 		var g = enemies.guardian_of(near)
 		var sub: String = "Fortezza" if near.kind == "castle" else "Villaggio"
@@ -738,6 +843,8 @@ func _update_camera(dt: float, c: Dictionary) -> void:
 	var g := maxf(world.ground_height(pos.x, pos.z), water.height_at(pos.x, pos.z) + 1)
 	if pos.y < g + 3:
 		pos.y = g + 3
+	# la camera non entra nella roccia della tana
+	pos = world.lair.clip_segment(dragon.position + Uv * 3.0, pos)
 	cam_up = cam_up.lerp(Vector3.UP if gb > 0.5 else Uv, 1 - exp(-dt * 3)).normalized()
 	var target := dragon.position + F * 10 + Uv * 2.5
 	if gb > 0.001:

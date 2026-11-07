@@ -6,13 +6,14 @@ const HELP_TEXT := """COMANDI — tastiera e mouse
 W S / ↑ ↓   sali / scendi        A D / ← →   vira
 Shift o E   accelera             Q o Z   rallenta
 Spazio / clic sinistro   sputa fuoco (tieni premuto)
+F   sputa ghiaccio: spegne case, alberi e lanterne
 Destro + trascina, rotella   ruota / avvicina la camera
 L   atterra / decolla            I   inverti asse verticale
 M   attiva / disattiva l'audio
 
 JOYSTICK
 Levetta sinistra   vira, sali, scendi     Levetta destra   camera
-A / B   accelera / rallenta     RT   fuoco     X   palla di fuoco
+A / B   accelera / rallenta     RT   fuoco     LT   ghiaccio     X   palla di fuoco
 Y   giro della morte     LB RB   piroetta     LT + RT   tempesta di fuoco
 Premi la levetta sinistra   atterra / decolla
 
@@ -416,7 +417,8 @@ func update_hud(dt: float, s: Dictionary) -> void:
 	var aim = s.aim
 	crosshair.visible = on_ground or aim != null
 	ground_hint.visible = on_ground
-	ground_hint.text = "Mouse: mira · Esc: libera il mouse · L: decolla" if s.locked else "Clic: mira col mouse · Frecce/levetta destra: testa · L: decolla"
+	var fly := "esci dalla grotta per volare" if world.lair.inside(s.dragon.position) else "L: decolla"
+	ground_hint.text = ("Mouse: mira · Esc: libera il mouse · " if s.locked else "Clic: mira col mouse · Frecce/levetta destra: testa · ") + fly
 	if crosshair.visible:
 		var cam: Camera3D = s.camera
 		var p: Vector3 = d.get_mouth()[0] + d.aim_dir * 90 if on_ground else aim

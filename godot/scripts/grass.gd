@@ -22,6 +22,8 @@ func setup(world: World) -> void:
 		mat.shader = shader
 		mat.set_shader_parameter("terrain_data", world.data_tex)
 		mat.set_shader_parameter("villages", vs)
+		for k in ["stream_tex", "stream_box"]:
+			mat.set_shader_parameter(k, world.terrain_material.get_shader_parameter(k))
 		for k in ["spacing", "radius", "inner", "clump"]:
 			mat.set_shader_parameter(k, r[k])
 		var n := int(ceil(r.radius * 2 / r.spacing))

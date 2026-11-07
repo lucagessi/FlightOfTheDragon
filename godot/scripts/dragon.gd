@@ -42,6 +42,7 @@ var maneuver = null
 var extra_pitch := 0.0
 var extra_roll := 0.0
 var breathing := false
+var frost := false # il soffio è di ghiaccio: la bocca brilla d'azzurro
 var roaring := 0.0
 var altitude := 60.0
 var ground_y := 0.0
@@ -566,9 +567,11 @@ func update_dragon(dt: float, ctrl: Dictionary, world: World, animate := true) -
 		d = atan2(sin(d), cos(d))
 		auto_steer = -clampf(d * 2, -1, 1) * U.smooth(5200, 5800, dist_c)
 	out_of_bounds = dist_c > 5200
-	var st := clampf(steer + auto_steer, -1, 1)
+	# nella grotta della tana vira da solo prima di finire contro la roccia
+	var cave := world.lair.avoid(position, forward, yaw) if not dying else Vector2.ZERO
+	var st := clampf(steer + auto_steer + cave.x, -1, 1)
 
-	pitch = U.damp(pitch, -0.85 if dying else climb * 0.62, 1.2 if dying else 2.5, dt)
+	pitch = U.damp(pitch, -0.85 if dying else clampf(climb + cave.y, -1, 1) * 0.62, 1.2 if dying else 2.5, dt)
 	var base := 26 + throttle * 124
 	speed = U.damp(speed, base - sin(pitch) * 50, 0.9, dt)
 	yaw -= st * (1.15 - throttle * 0.45) * dt
@@ -599,6 +602,11 @@ func update_dragon(dt: float, ctrl: Dictionary, world: World, animate := true) -
 	velocity.x += -cy * lateral
 	velocity.z += sy * lateral
 	position += velocity * dt
+	var pushed := world.lair.push_out(position, 7.0)
+	if pushed != position:
+		if pushed.y < position.y:
+			pitch = minf(pitch, 0)
+		position = pushed
 
 	# niente atterraggio: quota minima sopra terra/mare
 	var g := maxf(world.ground_height(position.x, position.z), 0)
@@ -646,6 +654,7 @@ func _finish_frame(dt: float, animate: bool, events: Dictionary) -> Dictionary:
 	jaw = U.damp(jaw, 0.55 if breathing else (0.7 if roaring > 0 else 0.04), 10, dt)
 	roaring = maxf(0, roaring - dt)
 	mats.mouth.emission_energy_multiplier = U.damp(mats.mouth.emission_energy_multiplier, 8.0 if breathing else 0.3, 8, dt)
+	mats.mouth.emission = (Color(0.4, 0.75, 1.0) if frost else Color(1, 0.3, 0.05)).linear_to_srgb()
 	if animate:
 		_update_body()
 		_update_wings()
@@ -656,13 +665,15 @@ func _finish_frame(dt: float, animate: bool, events: Dictionary) -> Dictionary:
 
 # ---------------- A TERRA ----------------
 # Prova ad atterrare: restituisce "ok" oppure il motivo per cui non si può
-func land(world: World) -> String:
-	if mode != "air" or dying or maneuver != null:
+# force: atterra comunque, da qualsiasi quota (entrando nella grotta della tana)
+func land(world: World, force := false) -> String:
+	if mode != "air" or dying or (maneuver != null and not force):
 		return "busy"
+	maneuver = null
 	var g := world.ground_height(position.x, position.z)
 	if g < 1:
 		return "water"
-	if position.y - g > 70:
+	if position.y - g > 70 and not force:
 		return "high"
 	mode = "landing"
 	mode_t = 0
@@ -745,7 +756,7 @@ func _update_ground(dt: float, ctrl: Dictionary, world: World, animate: bool, ev
 		var px := nx + fx * 8 * dir
 		var pz := nz + fz * 8 * dir
 		var gp := world.ground_height(px, pz)
-		var blocked := gp < 0.8 or absf(gp - g) > 7 or world.building_at(px, gp + 3, pz) != null
+		var blocked := gp < 0.8 or absf(gp - g) > 7 or world.building_at(px, gp + 3, pz) != null or world.lair.solid(Vector3(px, gp + 4, pz))
 		if blocked:
 			speed = 0
 		else:

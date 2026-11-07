@@ -12,6 +12,7 @@ Godot_v4.7.2-stable_win64.exe --path godot
 
 Opzioni di verifica (dopo `--`): `--start` salta la schermata iniziale, `--burn` incendia il villaggio
 più vicino, `--land` atterra lì accanto, `--peak` porta davanti alla vetta più alta, `--house` a terra davanti alle case, `--closeup[=<angolo>[:<distanza>]]` inquadra ad altezza d'uomo la casa signorile più ricca vicina (portale, ballatoio, bovindo), `--burnhouse` con `--closeup` incendia la casa inquadrata, `--lookup` con `--closeup` guarda il cielo sopra la casa, `--backlit` con `--closeup` sceglie una casa con la facciata in controluce, `--nohud` nasconde l'HUD, `--guardian` mette di fronte al guardiano più vicino già ostile, `--fortress` davanti alla fortezza già risvegliata (`--fortress=<angolo>` la inquadra tutta da quella direzione, `--fortress=post` da vicino sulle armi del mastio), `--breathe` tiene premuto il fuoco,
+`--lair[=<vista>]` porta alla tana del drago (vuoto: in volo verso la bocca; `far` il monte da lontano, `plateau` lo spiazzo, `eggs` i nidi, `in` dentro al buio, `lit` dentro con le lanterne accese, `treasure` e `top` il tesoro, `fly` in volo verso la grotta (entrando atterra), `south` il massiccio da sud, `stream` il ruscello), `--ice[=<secondi>]` soffia ghiaccio (dopo quei secondi; serve `--start`),
 `--novsync` toglie il limite di fps,
 `--screenshot=<file.png> --shot-time=<secondi>` salva un'immagine e chiude.
 
@@ -76,6 +77,45 @@ e tutte le postazioni a tiro sparano con tiro balistico e anticipo sul bersaglio
 Ogni postazione si distrugge col fuoco o incendiando la sua torre; quando cadono tutte, cade la fortezza.
 Ha un generatore casuale proprio (seme 7331), così il resto del mondo resta identico alla versione Three.js.
 
+## Soffio di ghiaccio
+
+Con **F** (tastiera) o il **grilletto sinistro** (joystick; insieme al destro resta la tempesta di fuoco) il drago
+sputa ghiaccio invece del fuoco, con la stessa energia: una nebbia gelata azzurra con qualche cristallo che
+scintilla. Spegne le case in fiamme (restano annerite e si possono riaccendere), gli alberi che bruciano e le
+lanterne della tana; dove spegne un fuoco sale vapore.
+
+## La tana del drago
+
+Esiste solo nella versione Godot (`scripts/lair.gd`, `shaders/lair.gdshader`, `shaders/stream.gdshader`).
+Sull'isola a nord-est, che non ha villaggi, si alza un massiccio irregolare: la vetta (circa 1350 m) sta alle
+spalle della grotta, con creste, canaloni e guglie, neve in quota e roccia sulle pareti. La grotta si apre sul
+fianco a 780 m, incassata tra pareti a picco, con la bocca a ovest (il sole non entra); davanti c'è uno spiazzo
+piano largo 250 m, un balcone sul vuoto di terra battuta con chiazze di muschio, cespugli, bruciature e due nidi
+con le uova di drago (alcune schiuse, con i gusci sparsi), mentre sotto il monte scende con un pendio di roccia a
+speroni e canaloni.
+
+- **Ruscello**: nasce sotto la vetta e scende fino al mare seguendo le valli: il percorso è il più comodo sulla
+  griglia del terreno (ogni metro di risalita e ogni dosso costano), si scava il letto e dove il pendio è ripido
+  diventa una cascata schiumosa con la nebbiolina al piede. Lungo il letto il terreno perde il rilievo roccioso
+  fine, i sassi sono bagnati e non c'è erba.
+- **Guscio di roccia**: il terreno a griglia non può avere volte, quindi la volta della grotta è una mesh fatta di
+  due ellissoidi (parete interna ed esterna) deformati dallo stesso rumore usato per le collisioni; la bocca è
+  ritagliata da entrambi e cucita da pareti di passaggio, e il resto del guscio sparisce nel monte.
+- **Buio**: dentro una sonda di riflessione toglie cielo e riflessi, i materiali spengono la luce ambiente secondo la
+  distanza dalla bocca, e quando la camera entra la foschia volumetrica perde la luce del cielo.
+- **Lanterne** (33: alle pareti, sui pali e appese alla volta): il soffio o un'esplosione vicini le accendono con uno
+  sbuffo di scintille e restano accese (il ghiaccio le spegne); ognuna è una luce che tremola, le quattro più vicine
+  alla camera fanno ombra, e più ne sono accese più la grotta si scalda di riverbero. L'HUD conta quelle accese.
+- **Dentro**: stalattiti e stalagmiti, lo scheletro di una bestia gigante con le costole ad arco, crani cornuti e
+  mucchi d'ossa, carri (anche rovesciati o con la ruota rotta), due relitti di navi con le falle, l'albero spezzato
+  e la vela strappata, e in fondo il tesoro: cumuli di monete, forzieri, coppe, corone, urne, scudi, spade
+  piantate e gemme.
+- **Solo a piedi**: chi entra in volo atterra subito e dentro non si decolla (bisogna uscire dalla bocca); le pareti
+  bloccano il passo, la camera si ferma prima della roccia e le fiamme si spengono sulle pareti.
+
+La vetta viene modellata dopo aver piantato gli alberi (gli alberi rimasti sotto il nuovo suolo vengono tolti) e
+la tana ha un generatore casuale proprio: villaggi ed edifici restano identici.
+
 ## Texture
 
 Terreno, edifici e cortecce usano materiali PBR CC0 di [Poly Haven](https://polyhaven.com) in `textures/`
@@ -111,6 +151,7 @@ perché su Windows l'antivirus blocca il file appena creato e l'incorporazione f
 | `scripts/foliage.gd` | modelli procedurali degli alberi e atlante delle foglie |
 | `scripts/dragon.gd` | modello procedurale del drago, volo, atterraggio e camminata |
 | `scripts/audio.gd` | audio procedurale: vento, ali, fiamme, mare, incendi, esplosioni, ruggiti |
+| `scripts/lair.gd` | tana del drago: massiccio, ruscello, grotta, lanterne, tesoro, ossa, carri, navi e uova |
 | `scripts/fortress.gd` | fortezza di Monte Nero: mura sui pendii, mastio, armi, proiettili e difesa |
 | `scripts/enemies.gd` | draghi guardiani: ronda, inseguimento, attacchi, vita e abbattimento |
 | `scripts/fx.gd`, `scripts/particles.gd` | particelle, soffio, palle di fuoco, tempesta, esplosioni, luci |

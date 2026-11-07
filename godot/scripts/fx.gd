@@ -10,6 +10,7 @@ var fire := ParticleSystem.new()
 var embers := ParticleSystem.new()
 var smoke := ParticleSystem.new()
 var spray := ParticleSystem.new()
+var frost := ParticleSystem.new()
 var systems: Array[ParticleSystem] = []
 var lights: Array[OmniLight3D] = []
 var light_i := 0
@@ -21,6 +22,7 @@ var shake := 0.0
 var storm = null
 var breath_acc := 0.0
 var breath_light := 0.0
+var breath_color := Color(1, 0.54, 0.19)
 var fb_mesh := SphereMesh.new()
 var fb_mat := StandardMaterial3D.new()
 var fb_enemy_mat := StandardMaterial3D.new()
@@ -43,10 +45,12 @@ func setup(w: World, wt: Water) -> void:
 	embers.setup(1000, spark_mat, -6, 0.6, ParticleSystem.Ramp.EMBER)
 	smoke.setup(2500, smoke_mat, 1.2, 0.35, ParticleSystem.Ramp.SMOKE)
 	spray.setup(2000, smoke_mat, -14, 0.8, ParticleSystem.Ramp.SPRAY)
-	systems = [smoke, spray, fire, embers]
+	frost.setup(3000, add_mat, -3, 1.4, ParticleSystem.Ramp.ICE)
+	systems = [smoke, spray, fire, embers, frost]
 	for s in systems:
 		add_child(s)
 	fire.on_collide = _particle_hit
+	frost.on_collide = _frost_hit
 	for i in 6:
 		var l := OmniLight3D.new()
 		l.light_color = Color(1, 0.48, 0.16)
@@ -107,6 +111,13 @@ func _ignite(b: World.Building, owner: String, delay := 0.0) -> void:
 # Collisione delle fiamme del soffio con terreno, acqua ed edifici
 # (flag delle particelle: 1 = fuoco del giocatore, 2 = fuoco di un drago nemico)
 func _particle_hit(pos: Vector3, flag: int) -> bool:
+	# tana del drago: le fiamme si fermano sulla roccia e accendono le lanterne vicine (con larghezza: basta
+	# soffiare nella loro direzione)
+	if world.lair.near(pos):
+		if world.lair.solid(pos):
+			world.lair.heat(pos, 22.0)
+			return true
+		world.lair.heat(pos, 14.0)
 	var g := world.ground_height(pos.x, pos.z)
 	if pos.y < g + 0.6 or pos.y < 0.4:
 		var r := randf()
@@ -147,8 +158,54 @@ func emit_breath(dt: float, mouth: Vector3, dir: Vector3, dragon_vel: Vector3, i
 	if acc == null:
 		breath_acc = n
 		breath_light = 1
+		breath_color = Color(1, 0.54, 0.19)
 	else:
 		acc.breath = n
+
+
+# Soffio di ghiaccio del giocatore: stesso getto del fuoco, ma gelido (flag 3)
+func emit_frost(dt: float, mouth: Vector3, dir: Vector3, dragon_vel: Vector3) -> void:
+	var n := breath_acc + dt * 420
+	var upv := Vector3.UP if absf(dir.y) < 0.95 else Vector3.RIGHT
+	var right := dir.cross(upv).normalized()
+	var up2 := right.cross(dir).normalized()
+	while n >= 1:
+		n -= 1
+		var a := randf() * TAU
+		var s := sqrt(randf()) * 0.13
+		var d := dir + (right * cos(a) + up2 * sin(a)) * s
+		frost.spawn(mouth + dir * randf() * 2.5, d * (85 + randf() * 30) + dragon_vel, 0.8 + randf() * 0.4, 0.7 + randf() * 0.6, 6 + randf() * 5, 0, 3, 0.9)
+	breath_acc = n
+	breath_light = 1
+	breath_color = Color(0.45, 0.75, 1.0)
+
+
+# Il ghiaccio spegne case in fiamme, alberi che bruciano e lanterne; dove spegne un fuoco sale vapore
+func _frost_hit(pos: Vector3, _flag: int) -> bool:
+	if world.lair.near(pos):
+		if world.lair.solid(pos):
+			world.lair.chill(pos, 20.0)
+			return true
+		world.lair.chill(pos, 12.0)
+	var g := world.ground_height(pos.x, pos.z)
+	var b := world.building_at(pos.x, pos.y, pos.z)
+	if b != null or pos.y < g + 0.6 or pos.y < 0.4:
+		var put_out := world.extinguish_near(pos.x, pos.z, 10.0 if b == null else 4.0)
+		if b != null and world.extinguish(b):
+			put_out += 1
+		if put_out > 0:
+			_steam(Vector3(pos.x, maxf(pos.y, g) + 2, pos.z), 12 * put_out)
+			audio.whoosh(0.4)
+		elif randf() < 0.1:
+			smoke.spawn(Vector3(pos.x, maxf(g, 0.3) + 1, pos.z), Vector3((randf() - 0.5) * 3, 2, (randf() - 0.5) * 3), 1.5, 2, 6, 1)
+		return true
+	return false
+
+
+func _steam(pos: Vector3, n: int) -> void:
+	for i in n:
+		smoke.spawn(pos + Vector3((randf() - 0.5) * 8, randf() * 4, (randf() - 0.5) * 8),
+			Vector3((randf() - 0.5) * 4, 8 + randf() * 8, (randf() - 0.5) * 4), 2.5 + randf() * 2, 4, 16, 1)
 
 
 # owner: "player" o "enemy" (decide chi viene danneggiato)
@@ -188,6 +245,7 @@ func explode(pos: Vector3, size := 1.0, owner := "player", burn := true) -> void
 	var g := world.ground_height(pos.x, pos.z)
 	var on_water := g < 0.5 and pos.y < 3
 	var R := 36 * size
+	world.lair.heat(pos, R)
 	for i in int(170 * size):
 		var d := Vector3(randf() - 0.5, randf() * 0.8 - 0.1, randf() - 0.5).normalized()
 		fire.spawn(pos + Vector3(0, 1, 0), d * (15 + randf() * 55), 0.6 + randf() * 0.9, 4 + randf() * 3, 12 + randf() * 10, 2, 0, 2.5)
@@ -317,7 +375,7 @@ func update_fx(dt: float, cam_pos: Vector3, mouth_pos) -> void:
 			continue
 		_light(f.pos, 40.0 * pow(1 - f.t / 0.9, 2), Color(1, 0.63, 0.25))
 	if breath_light > 0 and mouth_pos != null:
-		_light(mouth_pos - Vector3(0, 6, 0), 6.0 * breath_light * (0.8 + randf() * 0.4), Color(1, 0.54, 0.19))
+		_light(mouth_pos - Vector3(0, 6, 0), 6.0 * breath_light * (0.8 + randf() * 0.4), breath_color)
 		breath_light = maxf(0, breath_light - dt * 6)
 	var fbs := fireballs.duplicate()
 	fbs.sort_custom(func(a, b): return a.mesh.position.distance_squared_to(cam_pos) < b.mesh.position.distance_squared_to(cam_pos))

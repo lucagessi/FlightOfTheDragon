@@ -38,6 +38,7 @@ vec4 meadow(vec2 tp, float th, float slope, vec3 tint, out float tall) {
 	float w = ss(3.8, 6.5, th) * (1.0 - ss(0.26, 0.4, slope + (n1 - 0.5) * 0.2));
 	float snow_line = 255.0 + (n1 - 0.5) * 90.0;
 	w *= 1.0 - ss(snow_line - 30.0, snow_line, th);
+	w *= 1.0 - ss(0.15, 0.45, stream_mask(tp)); // niente erba nel ruscello
 	vec3 col = tint;
 	for (int i = 0; i < 12; i++) {
 		vec4 v = villages[i];

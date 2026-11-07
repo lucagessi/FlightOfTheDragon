@@ -216,6 +216,7 @@ func update_input(dt: float) -> Dictionary:
 		climb = -climb
 	var throttle := (1.0 if _key(KEY_SHIFT) or _key(KEY_E) else 0.0) - (1.0 if _key(KEY_Q) or _key(KEY_Z) else 0.0)
 	var fire := _key(KEY_SPACE) or mouse_fire
+	var ice := _key(KEY_F)
 	var look_x := 0.0
 	var look_y := 0.0
 	# a terra: lettere per camminare, frecce per muovere la testa
@@ -250,6 +251,9 @@ func update_input(dt: float) -> Dictionary:
 			throttle = -1
 		if pad.rt > 0.3:
 			fire = true
+		# grilletto sinistro = ghiaccio (con il destro insieme resta la combinazione della tempesta)
+		elif pad.lt > 0.3:
+			ice = true
 		look_x = -pad.rx
 		look_y = pad.ry
 		if absf(pad.rx) > 0:
@@ -264,7 +268,7 @@ func update_input(dt: float) -> Dictionary:
 	actions = []
 	return {
 		"steer": clampf(steer, -1, 1), "climb": clampf(climb, -1, 1),
-		"throttle": throttle, "fire": fire,
+		"throttle": throttle, "fire": fire, "ice": ice,
 		"look_x": look.x + look_x, "look_y": look.y + look_y * 0.6,
 		"zoom": zoom,
 		"walk_steer": walk_steer, "walk": walk, "aim_x": aim_x, "aim_y": aim_y, "mouse_dx": md.x, "mouse_dy": md.y,

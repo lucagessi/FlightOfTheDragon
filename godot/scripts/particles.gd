@@ -3,7 +3,7 @@
 class_name ParticleSystem
 extends MultiMeshInstance3D
 
-enum Ramp { FIRE, EMBER, SMOKE, SPRAY }
+enum Ramp { FIRE, EMBER, SMOKE, SPRAY, ICE }
 
 var max_n := 0
 var gravity := 0.0
@@ -152,5 +152,12 @@ func _ramp(t: float, id: int, i: int) -> Color:
 				return Color(0.85, 0.88, 0.92, _ss(0, 0.1, t) * (1 - _ss(0.3, 1, t)) * 0.4)
 			var k := _ss(0, 0.5, t)
 			return Color(0.09 + 0.16 * k, 0.085 + 0.15 * k, 0.08 + 0.15 * k, _ss(0, 0.12, t) * (1 - _ss(0.4, 1, t)) * 0.55)
+		Ramp.ICE:
+			# soffio di ghiaccio: nucleo bianco-azzurro che si apre in una nebbia gelata
+			var a := _ss(0, 0.05, t) * (1 - _ss(0.45, 1, t))
+			var k := minf(1, t * 2.5)
+			# qualche cristallo che scintilla nella nebbia
+			var glint := 2.5 if (i * 7919) % 23 == 0 else 1.0
+			return Color((0.32 - 0.12 * k) * glint, (0.62 - 0.2 * k) * glint, (1.1 - 0.3 * k) * glint, a * (0.32 - 0.12 * k))
 	# spruzzi
 	return Color(0.9, 0.94, 0.98, _ss(0, 0.08, t) * (1 - _ss(0.4, 1, t)) * (0.75 if id == 1 else 0.5))

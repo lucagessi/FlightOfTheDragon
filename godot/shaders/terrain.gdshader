@@ -18,6 +18,7 @@ uniform sampler2DArray tex_h : hint_default_white, filter_linear_mipmap_anisotro
 varying vec3 v_wpos;
 
 #include "res://shaders/terrain_common.gdshaderinc"
+#include "res://shaders/lair_common.gdshaderinc"
 
 void vertex() {
 	vec2 p = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz;
@@ -197,6 +198,35 @@ void fragment() {
 	float snow_line = 255.0 + (n1 - 0.5) * 90.0;
 	float snow = ss(snow_line, snow_line + 25.0, th) * (1.0 - ss(0.45, 0.68, slope));
 	snow = max(snow, ss(snow_line + 60.0, snow_line + 110.0, th) * (1.0 - ss(0.66, 0.9, slope)));
+	// tana del drago: spiazzo e pavimento della grotta di terra battuta e roccia, anneriti dal fuoco, senza neve
+	float lz = lair_zone(v_wpos);
+	if (lz > 0.0) {
+		snow *= 1.0 - lz;
+		Mat d = layer2(1, tp, 3.5, kfar, 0);
+		d.col *= vec3(0.6, 0.56, 0.52);
+		mix_in(cur, d, lz);
+		// lastroni di roccia affioranti, bruciature e muschio a chiazze morbide (onde intrecciate: il rumore a
+		// griglia, tagliato a soglia, darebbe bordi squadrati)
+		Mat r = rock_tri(v_wpos, wn, kfar);
+		r.col = mix(r.col, vec3(dot(r.col, vec3(0.3, 0.59, 0.11))), 0.6) * 0.8;
+		mix_in(cur, r, lz * ss(0.6, 0.85, lair_blob(tp * 1.3 + 17.0)));
+		cur.col *= mix(1.0, 0.45, ss(0.62, 0.9, lair_blob(tp * 0.8 + 40.0)) * lz);
+		float moss = ss(0.6, 0.8, lair_blob(tp)) * lz * (1.0 - cave_floor(tp));
+		if (moss > 0.0) {
+			Mat g = layer2(0, tp, 4.0, kfar, 0);
+			g.col *= clamp(lin(vec3(0.4, 0.43, 0.24)) / max(avg(0), vec3(0.01)), 0.0, 3.0);
+			mix_in(cur, g, moss);
+		}
+	}
+	// letto del ruscello: sassi bagnati e scuri, niente neve
+	float sm = stream_mask(tp);
+	if (sm > 0.0) {
+		snow *= 1.0 - sm;
+		Mat r = rock_tri(v_wpos, wn, kfar);
+		r.col *= 0.55;
+		mix_in(cur, r, sm * 0.85);
+		cur.rough *= 1.0 - 0.5 * sm;
+	}
 	if (snow > 0.0) {
 		Mat s = layer2(4, tp, 6.0, kfar, 0);
 		s.col *= vec3(0.9, 0.93, 1.0);
@@ -206,7 +236,8 @@ void fragment() {
 	// prato e terra sono opachi: col sole basso davanti non devono luccicare come un pavimento
 	ROUGHNESS = clamp(cur.rough, 0.75, 1.0);
 	SPECULAR = 0.3;
-	AO = cur.ao;
+	// dentro la grotta arriva solo la luce della bocca
+	AO = cur.ao * mix(1.0, cave_light(v_wpos), cave_floor(v_wpos.xz) * step(v_wpos.y, lair_c.y + 4.0));
 	AO_LIGHT_AFFECT = 0.15;
 	METALLIC = 0.0;
 	// il rilievo delle texture sfuma con la distanza (lontano resta solo la forma del terreno)
