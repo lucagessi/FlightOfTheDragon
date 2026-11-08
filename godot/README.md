@@ -137,7 +137,12 @@ GODOT="E:/Apps/win11/Godot/Godot_v4.7.2-stable_win64_console.exe" npm run dist:g
 ```
 
 crea `dist/godot/IlVoloDelDrago-godot.exe` con accanto `IlVoloDelDrago-godot.pck` (i dati del gioco: tienili nella
-stessa cartella); `npm run dist:godot -- linux` crea la versione Linux x64. Il pacchetto non è incorporato nell'exe
+stessa cartella); `npm run dist:godot -- linux` crea la versione Linux x64.
+
+Ogni push sul branch `feature/godotengine` pubblica in automatico una pre-release su GitHub
+(`.github/workflows/release-godot.yml`): la versione `v<versione>-godot.<n>` viene dai conventional commits, Godot
+4.7.2 (scaricato e tenuto in cache con i modelli di esportazione) esporta Windows e Linux x64, e la release allega
+uno zip per Windows e un tar.gz per Linux, ognuno con l'eseguibile e il `.pck` accanto. Il pacchetto non è incorporato nell'exe
 perché su Windows l'antivirus blocca il file appena creato e l'incorporazione fallisce.
 
 ## Struttura

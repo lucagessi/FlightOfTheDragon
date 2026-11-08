@@ -1,0 +1,85 @@
+name: Release Godot
+
+# Versione Godot sul branch feature/godotengine: semantic-release calcola una pre-release (v<versione>-godot.<n>)
+# dai conventional commits, Godot esporta Windows e Linux x64 e la GitHub Release le allega (zip e tar.gz, ognuno
+# con l'eseguibile e il pacchetto .pck accanto). Le release di main restano a release.yml.
+on:
+  push:
+    branches: [feature/godotengine]
+  workflow_dispatch: # avvio manuale da Actions → Release Godot → Run workflow
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-godot-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      - name: semantic-release (dry run)
+        id: next
+        run: |
+          npx semantic-release --dry-run
+          if [ -f next-version.txt ]; then echo "version=$(cat next-version.txt)" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Godot e i modelli di esportazione (1,3 GB) restano in cache tra un'esecuzione e l'altra
+      - name: Cache di Godot
+        if: steps.next.outputs.version != ''
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+      - name: Scarica Godot e i modelli di esportazione
+        if: steps.next.outputs.version != '' && steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          templates="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p ~/godot "$templates"
+          curl -fsSL -o /tmp/godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/* "$templates/"
+          rm -rf /tmp/godot.zip /tmp/templates.tpz /tmp/tpl
+
+      - name: Esporta Windows e Linux
+        if: steps.next.outputs.version != ''
+        run: |
+          export GODOT="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          v="${{ steps.next.outputs.version }}"
+          # prima importazione: registra le classi e converte le texture
+          "$GODOT" --headless --path godot --import || true
+          mkdir -p dist/godot-release
+          node scripts/godot-export.js
+          (cd dist/godot && zip -q "../godot-release/IlVoloDelDrago-godot-$v-windows-x64.zip" IlVoloDelDrago-godot.exe IlVoloDelDrago-godot.pck)
+          rm -f dist/godot/IlVoloDelDrago-godot.exe dist/godot/IlVoloDelDrago-godot.pck
+          node scripts/godot-export.js linux
+          chmod +x dist/godot/IlVoloDelDrago-godot.x86_64
+          tar -czf "dist/godot-release/IlVoloDelDrago-godot-$v-linux-x64.tar.gz" -C dist/godot IlVoloDelDrago-godot.x86_64 IlVoloDelDrago-godot.pck
+          ls -la dist/godot-release
+
+      - name: semantic-release
+        if: steps.next.outputs.version != ''
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
