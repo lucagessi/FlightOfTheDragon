@@ -24,6 +24,11 @@ poi due job in parallelo compilano `IlVoloDelDrago-<versione>.exe` (Windows) e `
 (Ubuntu), e infine semantic-release crea la GitHub Release con le note generate e i due pacchetti allegati.
 Non modificare a mano la versione in `package.json`: la imposta la CI.
 
+Ogni push su `feature/godotengine` esegue `.github/workflows/release-godot.yml`: semantic-release calcola una
+pre-release `v<versione>-godot.<n>` (stesse regole dei commit), Godot 4.7.2 esporta Windows e Linux x64 e la GitHub
+Release allega `IlVoloDelDrago-godot-<versione>-windows-x64.zip` e `IlVoloDelDrago-godot-<versione>-linux-x64.tar.gz`
+(eseguibile + `.pck`).
+
 ## Sviluppo
 
 - `npm install` copia Three.js in `vendor/` (non versionata).

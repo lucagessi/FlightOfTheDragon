@@ -15,7 +15,8 @@
     "start": "electron .",
     "dist": "node scripts/copy-three.js && electron-builder --win portable --linux tar.gz --x64 --publish never",
     "dist:win": "node scripts/copy-three.js && electron-builder --win portable --x64 --publish never",
-    "dist:linux": "node scripts/copy-three.js && electron-builder --linux tar.gz --x64 --publish never"
+    "dist:linux": "node scripts/copy-three.js && electron-builder --linux tar.gz --x64 --publish never",
+    "dist:godot": "node scripts/godot-export.js"
   },
   "devDependencies": {
     "@semantic-release/exec": "^6.0.3",
